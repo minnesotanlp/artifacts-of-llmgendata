@@ -95,7 +95,7 @@ def spearman_coefficient(x: List[int], y : List[int]):
     r,p = scipy.stats.spearmanr(x, y)
     return (r,p)
 
-def kendall_coefficient(y_labels: List[int], y_predicted_labels : List[int]):
+def kendall_coefficient(x: List[int], y : List[int]):
     '''
     Returns a tuple (r,p) where r is the kendall's correlation coefficient and p is the p-value
     x: 1d array-like (could be float as well)
@@ -104,8 +104,14 @@ def kendall_coefficient(y_labels: List[int], y_predicted_labels : List[int]):
     r,p = scipy.stats.kendalltau(x, y)
     return (r,p)
 
-def point_biserial_coeffcient(y_labels: List[int], y_predicted_labels : List[int]):
-    pass
+def point_biserial_coefficient(x: List[int], y : List[int]):
+    '''
+    Returns a tuple (r,p) where r is the point biserial correlation coefficient and p is the p-value
+    x: 1d array-like (could be float as well)
+    y: 1d array-like (could be float as well)
+    '''
+    r,p = scipy.stats.pointbiserialr(x, y)
+    return (r,p)
 
 # print(precision([1,0,0],[1,0,1],'binary'))
 # print(recall([1,0,0],[1,0,1],'binary'))
@@ -120,6 +126,7 @@ def point_biserial_coeffcient(y_labels: List[int], y_predicted_labels : List[int
 # print(pearson_coefficient(x,y))
 # print(spearman_coefficient(x,y))
 # print(kendall_coefficient(x,y))
+# print(point_biserial_coefficient(x,y))
 
 
 
