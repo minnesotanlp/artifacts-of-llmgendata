@@ -1,5 +1,5 @@
 from typing import List
-from sklearn.metrics import precision_score, recall_score, accuracy_score
+import sklearn.metrics as metrics
 
 def precision(y_labels: List[int], y_predicted_labels : List[int], average: str):
     '''
@@ -8,7 +8,7 @@ def precision(y_labels: List[int], y_predicted_labels : List[int], average: str)
     y_predicteed_labels: 1d array-like, or label indicator array
     average: micro | macro | samples | weighted | binary
     '''
-    return precision_score(y_labels, y_predicted_labels, average=average)
+    return metrics.precision_score(y_labels, y_predicted_labels, average=average)
 
 def mean_average_precision(y_labels: List[int], y_predicted_labels : List[int]):
     pass
@@ -20,7 +20,7 @@ def recall(y_labels: List[int], y_predicted_labels : List[int], average: str):
     y_predicteed_labels: 1d array-like, or label indicator array
     average: micro | macro | samples | weighted | binary
     '''
-    return recall_score(y_labels, y_predicted_labels, average=average)
+    return metrics.recall_score(y_labels, y_predicted_labels, average=average)
 
 def accuracy(y_labels: List[int], y_predicted_labels : List[int]):
     '''
@@ -28,10 +28,16 @@ def accuracy(y_labels: List[int], y_predicted_labels : List[int]):
     y_labels: 1d array-like, or label indicator array
     y_predicteed_labels: 1d array-like, or label indicator array
     '''
-    return accuracy_score(y_labels, y_predicted_labels)
+    return metrics.accuracy_score(y_labels, y_predicted_labels)
 
-def f1_score(y_labels: List[int], y_predicted_labels : List[int]):
-    pass
+def f1_score(y_labels: List[int], y_predicted_labels : List[int], average: str):
+    '''
+    Compute the recall
+    y_labels: 1d array-like, or label indicator array
+    y_predicteed_labels: 1d array-like, or label indicator array
+    average: micro | macro | samples | weighted | binary
+    '''
+    return metrics.f1_score(y_labels, y_predicted_labels, average=average)
 
 def auc_score(y_labels: List[int], y_predicted_labels : List[int]):
     pass
@@ -63,3 +69,4 @@ def point_biserial_coeffcient(y_labels: List[int], y_predicted_labels : List[int
 # print(precision([1,0,0],[1,0,1],'binary'))
 # print(recall([1,0,0],[1,0,1],'binary'))
 # print(accuracy([1,0,0],[1,0,1]))
+# print(f1_score([1,0,0],[1,0,1],'binary'))
