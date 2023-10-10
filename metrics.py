@@ -1,5 +1,6 @@
 from typing import List
 from sklearn import metrics
+import statistics
 
 def precision(y_labels: List[int], y_predicted_labels : List[int], average: str):
     '''
@@ -66,8 +67,13 @@ def mean_absolute_percentage_error(y_labels: List[int | float], y_predicted_labe
     '''
     return metrics.mean_absolute_percentage_error(y_labels, y_predicted_labels)
 
-def covariance(y_labels: List[int], y_predicted_labels : List[int]):
-    pass
+def covariance(x: List[int | float], y : List[int | float]):
+    '''
+    Compute the covariance between two vectors
+    x: 1d array-like (could be float as well)
+    y: 1d array-like (could be float as well)
+    '''
+    return statistics.covariance(x, y)
 
 def pearson_coefficient(y_labels: List[int], y_predicted_labels : List[int]):
     pass
@@ -87,6 +93,8 @@ def point_biserial_coeffcient(y_labels: List[int], y_predicted_labels : List[int
 # print(f1_score([1,0,0],[1,0,1],'binary'))
 # print(auc_score([1,0,0],[1,0,1]))
 # print(root_mean_squared_error([3, -0.5, 2, 7],[2.5, 0.0, 2, 8]))
-print(mean_absolute_percentage_error([3, -0.5, 2, 7],[2.5, 0.0, 2, 8]))
+# print(mean_absolute_percentage_error([3, -0.5, 2, 7],[2.5, 0.0, 2, 8]))
+# print(covariance([2, 3, 4, 2],[3, 5, 9, 0]))
+
 
 
