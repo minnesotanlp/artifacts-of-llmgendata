@@ -13,8 +13,13 @@ def precision(y_labels: List[int], y_predicted_labels : List[int], average: str)
     '''
     return metrics.precision_score(y_labels, y_predicted_labels, average=average)
 
-def mean_average_precision(y_labels: List[int], y_predicted_labels : List[int]):
-    pass
+def mean_average_precision(y_labels: List[int], y_predicted_labels : List[int | float]):
+    '''
+    Compute the mean average precision
+    y_labels: 1d array-like, or label indicator array [true labels 0 or 1 for binary classification]
+    y_predicted_labels: 1d array-like [ predicited scores or probablilties for class 1]
+    '''
+    return metrics.average_precision_score(y_labels, y_predicted_labels,average='macro')
 
 def recall(y_labels: List[int], y_predicted_labels : List[int], average: str):
     '''
@@ -114,6 +119,7 @@ def point_biserial_coefficient(x: List[int | float], y : List[int | float]):
     return (r,p)
 
 # print(precision([1,0,0],[1,0,1],'binary'))
+# print(mean_average_precision([1,0,0],[1,0,1]))
 # print(recall([1,0,0],[1,0,1],'binary'))
 # print(accuracy([1,0,0],[1,0,1]))
 # print(f1_score([1,0,0],[1,0,1],'binary'))
