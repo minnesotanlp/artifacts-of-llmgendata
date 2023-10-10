@@ -1,5 +1,5 @@
 from typing import List
-from sklearn.metrics import precision_score
+from sklearn.metrics import precision_score, recall_score
 
 def precision(y_labels: List[int], y_predicted_labels : List[int], average: str):
     '''
@@ -13,8 +13,14 @@ def precision(y_labels: List[int], y_predicted_labels : List[int], average: str)
 def mean_average_precision(y_labels: List[int], y_predicted_labels : List[int]):
     pass
 
-def recall(y_labels: List[int], y_predicted_labels : List[int]):
-    pass
+def recall(y_labels: List[int], y_predicted_labels : List[int], average: str):
+    '''
+    Compute the precision
+    y_labels: 1d array-like, or label indicator array
+    y_predicteed_labels: 1d array-like, or label indicator array
+    average: micro | macro | samples | weighted | binary
+    '''
+    return recall_score(y_labels, y_predicted_labels, average=average)
 
 def accuracy(y_labels: List[int], y_predicted_labels : List[int]):
     pass
@@ -50,4 +56,5 @@ def point_biserial_coeffcient(y_labels: List[int], y_predicted_labels : List[int
     pass
 
 # print(precision([1,0,0],[1,0,1],'binary'))
+print(recall([1,0,0],[1,0,1],'binary'))
 
