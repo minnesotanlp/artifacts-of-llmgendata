@@ -43,15 +43,20 @@ def auc_score(y_labels: List[int], y_predicted_labels : List[int | float]):
     '''
     Compute the auc score
     y_labels: 1d array-like, or label indicator array [true labels 0 or 1 for binary classification]
-    y_predicted_labels: 1d array-like, or label indicator array [ predicited scores or probabalilties for class 1]
+    y_predicted_labels: 1d array-like [ predicited scores or probablilties for class 1]
     '''
     return metrics.roc_auc_score(y_labels, y_predicted_labels)
 
 def mean_reciprocal_rank(y_labels: List[int], y_predicted_labels : List[int]):
     pass
 
-def root_mean_squared_error(y_labels: List[int], y_predicted_labels : List[int]):
-    pass
+def root_mean_squared_error(y_labels: List[int | float], y_predicted_labels : List[int | float]):
+    '''
+    Compute the root mean squared error
+    y_labels: 1d array-like (could be float as well just in case need to use it for regression tasks)
+    y_predicted_labels: 1d array-like
+    '''
+    return metrics.mean_squared_error(y_labels, y_predicted_labels,squared=False)
 
 def mean_absolute_percentage_error(y_labels: List[int], y_predicted_labels : List[int]):
     pass
@@ -76,4 +81,5 @@ def point_biserial_coeffcient(y_labels: List[int], y_predicted_labels : List[int
 # print(accuracy([1,0,0],[1,0,1]))
 # print(f1_score([1,0,0],[1,0,1],'binary'))
 # print(auc_score([1,0,0],[1,0,1]))
+print(root_mean_squared_error([3, -0.5, 2, 7],[2.5, 0.0, 2, 8]))
 
