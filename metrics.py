@@ -77,20 +77,32 @@ def covariance(x: List[int | float], y : List[int | float]):
     '''
     return statistics.covariance(x, y)
 
-def pearson_coefficient(y_labels: List[int], y_predicted_labels : List[int]):
+def pearson_coefficient(x: List[int], y : List[int]):
     '''
     Returns a tuple (r,p) where r is the pearson's correlation coefficient and p is the p-value
+    x: 1d or 2d array-like (could be float as well)
+    y: 1d or 2d array-like (could be float as well)
+    '''
+    r,p = scipy.stats.pearsonr(x, y)
+    return (r,p)
+
+def spearman_coefficient(x: List[int], y : List[int]):
+    '''
+    Returns a tuple (r,p) where r is the spearman's correlation coefficient and p is the p-value
+    x: 1d or 2d array-like (could be float as well)
+    y: 1d or 2d array-like (could be float as well)
+    '''
+    r,p = scipy.stats.spearmanr(x, y)
+    return (r,p)
+
+def kendall_coefficient(y_labels: List[int], y_predicted_labels : List[int]):
+    '''
+    Returns a tuple (r,p) where r is the kendall's correlation coefficient and p is the p-value
     x: 1d array-like (could be float as well)
     y: 1d array-like (could be float as well)
     '''
-    r,p = scipy.stats.pearsonr(y_labels, y_predicted_labels)
+    r,p = scipy.stats.kendalltau(x, y)
     return (r,p)
-
-def spearman_coefficient(y_labels: List[int], y_predicted_labels : List[int]):
-    pass
-
-def kendall_coefficient(y_labels: List[int], y_predicted_labels : List[int]):
-    pass
 
 def point_biserial_coeffcient(y_labels: List[int], y_predicted_labels : List[int]):
     pass
@@ -103,9 +115,13 @@ def point_biserial_coeffcient(y_labels: List[int], y_predicted_labels : List[int
 # print(root_mean_squared_error([3, -0.5, 2, 7],[2.5, 0.0, 2, 8]))
 # print(mean_absolute_percentage_error([3, -0.5, 2, 7],[2.5, 0.0, 2, 8]))
 # print(covariance([2, 3, 4, 2],[3, 5, 9, 0]))
-x = np.arange(10, 20)
-y = np.array([2, 1, 4, 5, 8, 12, 18, 25, 96, 48])
-print(pearson_coefficient(x,y))
+# x = np.arange(10, 20)
+# y = np.array([2, 1, 4, 5, 8, 12, 18, 25, 96, 48])
+# print(pearson_coefficient(x,y))
+# print(spearman_coefficient(x,y))
+# print(kendall_coefficient(x,y))
+
+
 
 
 
