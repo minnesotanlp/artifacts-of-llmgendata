@@ -58,8 +58,13 @@ def root_mean_squared_error(y_labels: List[int | float], y_predicted_labels : Li
     '''
     return metrics.mean_squared_error(y_labels, y_predicted_labels,squared=False)
 
-def mean_absolute_percentage_error(y_labels: List[int], y_predicted_labels : List[int]):
-    pass
+def mean_absolute_percentage_error(y_labels: List[int | float], y_predicted_labels : List[int | float]):
+    '''
+    Compute the mean absolute percentage error
+    y_labels: 1d array-like (could be float as well just in case need to use it for regression tasks)
+    y_predicted_labels: 1d array-like (could be float as well just in case need to use it for regression tasks)
+    '''
+    return metrics.mean_absolute_percentage_error(y_labels, y_predicted_labels)
 
 def covariance(y_labels: List[int], y_predicted_labels : List[int]):
     pass
@@ -81,5 +86,7 @@ def point_biserial_coeffcient(y_labels: List[int], y_predicted_labels : List[int
 # print(accuracy([1,0,0],[1,0,1]))
 # print(f1_score([1,0,0],[1,0,1],'binary'))
 # print(auc_score([1,0,0],[1,0,1]))
-print(root_mean_squared_error([3, -0.5, 2, 7],[2.5, 0.0, 2, 8]))
+# print(root_mean_squared_error([3, -0.5, 2, 7],[2.5, 0.0, 2, 8]))
+print(mean_absolute_percentage_error([3, -0.5, 2, 7],[2.5, 0.0, 2, 8]))
+
 
