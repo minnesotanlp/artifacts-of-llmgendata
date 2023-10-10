@@ -77,7 +77,7 @@ def covariance(x: List[int | float], y : List[int | float]):
     '''
     return statistics.covariance(x, y)
 
-def pearson_coefficient(x: List[int], y : List[int]):
+def pearson_coefficient(x: List[int | float], y : List[int | float]):
     '''
     Returns a tuple (r,p) where r is the pearson's correlation coefficient and p is the p-value
     x: 1d or 2d array-like (could be float as well)
@@ -86,7 +86,7 @@ def pearson_coefficient(x: List[int], y : List[int]):
     r,p = scipy.stats.pearsonr(x, y)
     return (r,p)
 
-def spearman_coefficient(x: List[int], y : List[int]):
+def spearman_coefficient(x: List[int | float], y : List[int | float]):
     '''
     Returns a tuple (r,p) where r is the spearman's correlation coefficient and p is the p-value
     x: 1d or 2d array-like (could be float as well)
@@ -95,7 +95,7 @@ def spearman_coefficient(x: List[int], y : List[int]):
     r,p = scipy.stats.spearmanr(x, y)
     return (r,p)
 
-def kendall_coefficient(x: List[int], y : List[int]):
+def kendall_coefficient(x: List[int | float], y : List[int | float]):
     '''
     Returns a tuple (r,p) where r is the kendall's correlation coefficient and p is the p-value
     x: 1d array-like (could be float as well)
@@ -104,7 +104,7 @@ def kendall_coefficient(x: List[int], y : List[int]):
     r,p = scipy.stats.kendalltau(x, y)
     return (r,p)
 
-def point_biserial_coefficient(x: List[int], y : List[int]):
+def point_biserial_coefficient(x: List[int | float], y : List[int | float]):
     '''
     Returns a tuple (r,p) where r is the point biserial correlation coefficient and p is the p-value
     x: 1d array-like (could be float as well)
