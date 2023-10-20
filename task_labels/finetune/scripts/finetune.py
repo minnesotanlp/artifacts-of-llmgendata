@@ -36,48 +36,17 @@ data_df = data_df.fillna(-1)
 # create barplot of integers inside human_annots column based on frequency
 data_df['human_agg'].value_counts().plot(kind='bar')
 
-def format_dataset(filename):
-    df = read_csv(filename)
-    # since nans are already removed here (still checking below just in case), we may have lists that are shorter than expected
-    for col in ['human_annots', 'model_annots']:
-        df[col] = df[col].apply(lambda x: sorted([i if i != 'nan' else -1 for i in np.fromstring(x[1:-1].replace('.',''), dtype=int, sep=' ')]))
-        df[f'{col}_str'] = df[col].apply(lambda x: ' '.join([str(i) for i in x]))
-    df['short_prompt'] = df['prompt'].apply(lambda x: x[(x.index("Sentence: ")):])
-            #.replace("Sentence: ", "##### Sentence #####\n")\
-            #.replace("Label options: ", "\n##### Labels options #####\n"))
-    return df
-
-def split(df):
-    # count rows in each df
-    train_data = df.sample(frac=0.1, random_state=42)
-    val_data = df.sample(frac=0.1, random_state=42)
-    test_data = df.sample(frac=0.1, random_state=42)
-    #train_data = df.sample(frac=0.8, random_state=42)
-    #val_data = df.drop(train_data.index).sample(frac=0.5, random_state=42)
-    #test_data = df.drop(train_data.index).drop(val_data.index)
-    return DatasetDict({
-        "train": Dataset.from_pandas(train_data),
-        "val": Dataset.from_pandas(val_data),
-        "test": Dataset.from_pandas(test_data)
-    })
-
-
-#intra_model_df = format_dataset('../data/intramodel_data.csv')
-#inter_model_df = format_dataset('../data/intermodel_data.csv')
-#print('head', intra_model_df.head())
-#print('short prompt', intra_model_df['short_prompt'][0])
-intra_dataset = utils.get_data('../data/intramodel_data.csv')
-raise Exception('stop')
-inter_dataset = split(inter_model_df)
-
-
-print(f"Train dataset size: {len(intra_dataset['train'])}")
-print(f"Test dataset size: {len(inter_dataset['test'])}")
-
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 peft_config = LoraConfig(
     task_type=TaskType.SEQ_2_SEQ_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1
 )
+
+def main(filename):
+    dataset = utils.get_data('../data/intramodel_data.csv')
+
+    print(f"Train dataset size: {len(intra_dataset['train'])}")
+    print(f"Test dataset size: {len(inter_dataset['test'])}")
+
 
 
 def calculate_max_len(col, dataset):
@@ -90,6 +59,8 @@ def calculate_max_len(col, dataset):
 # FOCUS ON INTRA-DATASET FOR NOW
 ###################################
 
+intra_dataset = utils.get_data('../data/intramodel_data.csv')
+inter_dataset = utils.get_data('../data/intermodel_data.csv')
 intra_max_source_length = calculate_max_len('short_prompt', intra_dataset)
 inter_max_source_length = calculate_max_len('short_prompt', inter_dataset)
 intra_max_target_length = calculate_max_len('model_annots', intra_dataset)
@@ -98,8 +69,12 @@ inter_max_target_length = calculate_max_len('model_annots', inter_dataset)
 def preprocess_function(sample, padding="max_length", target="model_annots_str", max_target_length=32):
     # add prefix to the input for t5
     inputs = ["##### Predict annotations #####\n" + item for item in sample["short_prompt"]]
+    print(len(sample["short_prompt"]))
     #print('\n'.join(inputs))
-
+    tokenized = tokenizer(inputs, truncation=True)
+    max_source_length = max([len(x) for x in tokenized["input_ids"]])
+    print(f"Max source length: {max_source_length}")
+    raise Exception("stop here")
     # tokenize inputs
     #print("INPUT BEING TOKENIZED", inputs)
     model_inputs = tokenizer(inputs, max_length=intra_max_source_length, padding=padding, truncation=True)
@@ -123,6 +98,7 @@ def preprocess_function(sample, padding="max_length", target="model_annots_str",
 # intermodel************ DATA [['model_name', 'dataset_name', 'text_ind', 'text', 'prompt', 'human_annots', 'model_annots'] 
 
 tokenized_intra_dataset = intra_dataset.map(preprocess_function, batched=True, num_proc=accelerator.num_processes, remove_columns=['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'])
+raise Exception("stop here")
 tokenized_inter_dataset = inter_dataset.map(preprocess_function, batched=True, num_proc=accelerator.num_processes, remove_columns=['model_name', 'dataset_name', 'text_ind', 'prompt', 'human_annots'])
 print(f"Keys of inter tokenized dataset: {list(tokenized_inter_dataset['train'].features)}")
 
@@ -242,4 +218,5 @@ trainer.push_to_hub()
 #print(f"flan-t5-base summary:\n{res[0]['summary_text']}")
 
 
-# 
+main('../data/intramodel_data.csv')
+main('../data/intermodel_data.csv')
