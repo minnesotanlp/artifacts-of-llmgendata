@@ -44,54 +44,9 @@ peft_config = LoraConfig(
 def main(filename):
     dataset = utils.get_data('../data/intramodel_data.csv')
 
-    print(f"Train dataset size: {len(intra_dataset['train'])}")
-    print(f"Test dataset size: {len(inter_dataset['test'])}")
 
-
-
-def calculate_max_len(col, dataset):
-    tokenized = concatenate_datasets([dataset["train"], dataset["test"]]).map(lambda x: tokenizer(x["short_prompt"], truncation=True), batched=True, remove_columns=["short_prompt", "model_annots"])
-    max_source_length = max([len(x) for x in tokenized["input_ids"]])
-    print(f"Max source length: {max_source_length}")
-    return max_source_length
-
-####################################
-# FOCUS ON INTRA-DATASET FOR NOW
-###################################
-
-intra_dataset = utils.get_data('../data/intramodel_data.csv')
-inter_dataset = utils.get_data('../data/intermodel_data.csv')
-intra_max_source_length = calculate_max_len('short_prompt', intra_dataset)
-inter_max_source_length = calculate_max_len('short_prompt', inter_dataset)
-intra_max_target_length = calculate_max_len('model_annots', intra_dataset)
-inter_max_target_length = calculate_max_len('model_annots', inter_dataset)
-
-def preprocess_function(sample, padding="max_length", target="model_annots_str", max_target_length=32):
-    # target is just labels so we can hardcode it as 32
-    # add prefix to the input for t5
-    inputs = ["##### Predict annotations #####\n" + item for item in sample["short_prompt"]]
-    tokenized = tokenizer(inputs, truncation=True)
-    max_source_length = max([len(x) for x in tokenized["input_ids"]])
-
-    model_inputs = tokenizer(inputs, max_length=max_source_length, padding=padding, truncation=True)
-    labels = tokenizer(text_target=sample[target], max_length=max_target_length, padding=padding, truncation=True)
-
-    # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
-    # padding in the loss.
-    if padding == "max_length":
-        labels["input_ids"] = [
-            [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
-        ]
-
-    model_inputs["labels"] = labels["input_ids"]
-    return model_inputs
-# intramodel [['dataset_name', 'text_ind', 'text', 'prompt', 'params', 'human_annots', 'model_annots']
-# intermodel************ DATA [['model_name', 'dataset_name', 'text_ind', 'text', 'prompt', 'human_annots', 'model_annots'] 
-
-tokenized_intra_dataset = intra_dataset.map(preprocess_function, batched=True, num_proc=accelerator.num_processes, remove_columns=['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'])
-raise Exception("stop here")
-tokenized_inter_dataset = inter_dataset.map(preprocess_function, batched=True, num_proc=accelerator.num_processes, remove_columns=['model_name', 'dataset_name', 'text_ind', 'prompt', 'human_annots'])
-print(f"Keys of inter tokenized dataset: {list(tokenized_inter_dataset['train'].features)}")
+tokenized_intra_dataset = utils.get_tokenized_data('../data/intramodel_data.csv', tokenizer, 'model_annots', remove_columns=['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'])
+tokenized_inter_dataset = utils.get_tokenized_data('../data/intermodel_data.csv', tokenizer, 'model_annots', remove_columns=['model_name', 'dataset_name', 'text_ind', 'prompt', 'human_annots'])
 
 model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_ID)
 model = get_peft_model(model, peft_config)
@@ -103,6 +58,7 @@ metric = evaluate.load("rouge")
 
 # helper function to postprocess text
 def postprocess_text(preds, labels):
+    ######## NOT SURE IF WE NEED THIS ########
     preds = [pred.strip() for pred in preds]
     labels = [label.strip() for label in labels]
 
@@ -122,12 +78,19 @@ def compute_metrics(eval_preds):
     decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
 
     # Some simple post-processing
+    #######################BEFORE AND AFTER ARE THE SAME #########################
     decoded_preds, decoded_labels = postprocess_text(decoded_preds, decoded_labels)
+    print("DECODED PREDS", decoded_preds)
+    print("DECODED LABELS", decoded_labels)
 
     result = metric.compute(predictions=decoded_preds, references=decoded_labels, use_stemmer=True)
     result = {k: round(v * 100, 4) for k, v in result.items()}
+    print("RESULTS", result)
     prediction_lens = [np.count_nonzero(pred != tokenizer.pad_token_id) for pred in preds]
+    print("PREDS", prediction_lens)
     result["gen_len"] = np.mean(prediction_lens)
+    print("GEN LEN", result["gen_len"])
+    raise Exception("STOP")
     return result
 
 
