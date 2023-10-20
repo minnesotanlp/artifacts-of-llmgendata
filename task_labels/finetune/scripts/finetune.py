@@ -67,21 +67,14 @@ intra_max_target_length = calculate_max_len('model_annots', intra_dataset)
 inter_max_target_length = calculate_max_len('model_annots', inter_dataset)
 
 def preprocess_function(sample, padding="max_length", target="model_annots_str", max_target_length=32):
+    # target is just labels so we can hardcode it as 32
     # add prefix to the input for t5
     inputs = ["##### Predict annotations #####\n" + item for item in sample["short_prompt"]]
-    print(len(sample["short_prompt"]))
-    #print('\n'.join(inputs))
     tokenized = tokenizer(inputs, truncation=True)
     max_source_length = max([len(x) for x in tokenized["input_ids"]])
-    print(f"Max source length: {max_source_length}")
-    raise Exception("stop here")
-    # tokenize inputs
-    #print("INPUT BEING TOKENIZED", inputs)
-    model_inputs = tokenizer(inputs, max_length=intra_max_source_length, padding=padding, truncation=True)
 
-    # Tokenize targets with the `text_target` keyword argument
-    #print("TARGET BEING TOKENIZED", target)
-    labels = tokenizer(text_target=sample[target], max_length=intra_max_target_length, padding=padding, truncation=True)
+    model_inputs = tokenizer(inputs, max_length=max_source_length, padding=padding, truncation=True)
+    labels = tokenizer(text_target=sample[target], max_length=max_target_length, padding=padding, truncation=True)
 
     # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
     # padding in the loss.
@@ -91,8 +84,6 @@ def preprocess_function(sample, padding="max_length", target="model_annots_str",
         ]
 
     model_inputs["labels"] = labels["input_ids"]
-    print("MODEL_INPUTS")
-    print(model_inputs)
     return model_inputs
 # intramodel [['dataset_name', 'text_ind', 'text', 'prompt', 'params', 'human_annots', 'model_annots']
 # intermodel************ DATA [['model_name', 'dataset_name', 'text_ind', 'text', 'prompt', 'human_annots', 'model_annots'] 
