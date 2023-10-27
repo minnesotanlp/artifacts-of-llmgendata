@@ -12,6 +12,11 @@ import numpy as np
 from huggingface_hub import HfFolder
 from transformers import (
     pipeline,
+    AdamW,
+    get_linear_schedule_with_warmup,
+    get_cosine_schedule_with_warmup,
+    EarlyStoppingCallback,
+    GenerationConfig
     )
 import nltk
 from transformers import DataCollatorForSeq2Seq, AutoModelForSeq2SeqLM, DataCollatorWithPadding
@@ -19,17 +24,19 @@ from peft import get_peft_model, LoraConfig, TaskType
 from accelerate import Accelerator
 accelerator = Accelerator()
 import math
+import scipy
 SEED = 42
 random.seed(SEED)
 import utils
 #DATA [['model_name', 'dataset_name', 'text_ind', 'text', 'prompt', 'params', 'human_agg', 'model_annots'],
 # intramodel [['dataset_name', 'text_ind', 'text', 'prompt', 'params', 'human_annots', 'model_annots']
 # intermodel************ DATA [['model_name', 'dataset_name', 'text_ind', 'text', 'prompt', 'human_annots', 'model_annots']
-from custom_trainer import CustomTrainer
+from custom_trainer import CustomTrainer, CustomSeq2SeqTrainer
 # we want to ignore tokenizer pad token in the loss
 label_pad_token_id = -100
 # Data collator
 BATCH_SIZE = utils.get_batch_size()
+LR = 1e-4
 
 def calc_num_outcomes(num_labels):
     # all possible combinations (ignore order) of num_labels)
@@ -74,6 +81,14 @@ class Model:
         self.tokenized_dataset = tokenized_dataset
 
     def set_training_var(self, repository_id, compute_metrics):
+        no_decay = ['bias', 'LayerNorm.weight']
+        optimizer_grouped_parameters = [
+            {'params': [p for n, p in self.model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
+            {'params': [p for n, p in self.model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
+        ]
+        optimizer = AdamW(optimizer_grouped_parameters, lr=LR)
+        scheduler =  get_linear_schedule_with_warmup(optimizer, num_warmup_steps=10, num_training_steps=100)
+
         is_roberta = "roberta" in self.model_name
         if is_roberta:
             from transformers import Trainer, TrainingArguments
@@ -81,9 +96,13 @@ class Model:
             training_args = TrainingArguments
         elif "t5" in self.model_name:
             from transformers import Seq2SeqTrainer, Seq2SeqTrainingArguments
-            trainer = Seq2SeqTrainer
+            #trainer = Seq2SeqTrainer
+            trainer = CustomSeq2SeqTrainer
             training_args = Seq2SeqTrainingArguments
         print(accelerator.num_processes)
+        generation_config = GenerationConfig.from_pretrained(self.model_name)
+        generation_config.max_new_tokens = 5
+        generation_config.min_new_tokens = 5
         # Define training args
         self.training_args = training_args(
             output_dir=repository_id,
@@ -93,21 +112,24 @@ class Model:
             fp16=True,############3
             fp16_full_eval=True,#########
             dataloader_num_workers=accelerator.num_processes,
-            learning_rate=5e-4,
-            num_train_epochs=50,
+            learning_rate=LR,
+            num_train_epochs=30,
             logging_dir=f"{repository_id}/logs",
             logging_strategy="steps",
-            logging_steps=500,
+            logging_steps=10,
             evaluation_strategy="epoch",
             save_strategy="epoch",
             save_total_limit=2,
             load_best_model_at_end=True,
-            metric_for_best_model="edit_distance",
+            metric_for_best_model="train_loss",
+            greater_is_better=False,
             report_to="wandb",
             push_to_hub=False,
+            include_inputs_for_metrics=True,
             hub_strategy="every_save",
             hub_model_id=repository_id,
             hub_token=HfFolder.get_token(),
+            generation_config=generation_config,
         )
         # Create Trainer instance
         if not is_roberta:
@@ -128,10 +150,26 @@ class Model:
                 #pad_to_multiple_of=8
             )
             print('self.tokenized_dataset["val"]', self.tokenized_dataset["val"].shape)
+        early_stopping = EarlyStoppingCallback(early_stopping_patience=3)
+        '''
+        "return_dict_in_generate": True,
+            "num_beams": 1, # MESS WITH THIS LATERRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR
+            "prefix_allowed_tokens_fn": restrict_decode_vocab,
+            #"constraints": [
+            #    DisjunctiveConstraint([[209, 204, 220, 314, 305]]),
+            #],
+            "max_new_tokens": 5,
+            "min_new_tokens": 5,
+            "output_scores": True,
+            #"temperature": 1.0,
+            "do_sample": False,
+        '''
         self.trainer = trainer(
             model=self.model,
             args=self.training_args,
+            optimizers=(optimizer, scheduler),
             data_collator=data_collator,
+            callbacks=[early_stopping],
             train_dataset=self.tokenized_dataset["train"],
             eval_dataset=self.tokenized_dataset["val"],
             compute_metrics=compute_metrics,
@@ -166,7 +204,19 @@ def compute_metrics_(eval_preds):
     #######################BEFORE AND AFTER ARE THE SAME #########################
     return {'edit_distance': np.mean(edit_distances)}
 '''
+def max_edit_distance(target, output):
+    # Step 1: Find the maximum length difference
+    length_difference = abs(len(target) - len(output))
 
+    # Step 2: Character Replacement
+    char_difference = 0
+    for t, o in zip(target, output):
+        if t != o:
+            char_difference += 1
+
+    # Step 3: Calculate Maximum Edit Distance
+    max_distance = length_difference + char_difference
+    return max_distance
 
 def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]):
     #model = Model("google/t5-v1_1-base")
@@ -185,46 +235,136 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]
         repository_id = f"{model_id.replace('/','-')}-intra_model"
     else:
         repository_id = f"{model_id.replace('/','-')}-inter_model"
+        
+    def compute_metrics_(eval_preds):
+        print(eval_preds)
+        print('+++++++++++++++++++++++++++++++++++++++++++++++EVAL_PRED')
+        output, target = eval_preds
+
+        #(output, target, length_penalty_weight, character_penalty_weight, ordinal_penalty_weight):
+        # Calculate length penalty (MSE loss)
+        length_penalty = torch.mean((len(output) - len(target))**2)
+        print("length_penalty", length_penalty)
+
+        # Calculate character penalty (Cross-entropy loss)
+        character_penalty = -torch.sum(target * torch.log(output + 1e-8) + (1 - target) * torch.log(1 - output + 1e-8))
+        print("character_penalty", character_penalty)
+
+        # Calculate ordinal number penalty (MSE loss)
+        ordinal_penalty = torch.mean((output - target)**2)
+        print("ordinal_penalty", ordinal_penalty)
+
+        print('+++++++++++++++++++++++++++++++++++++++++++++++')
+        raise Exception("stop")
+
+        # Combine the penalties with their respective weights
+        total_loss = (
+            length_penalty_weight * length_penalty + 
+            character_penalty_weight * character_penalty + 
+            ordinal_penalty_weight * ordinal_penalty
+        )
+
+        return total_loss
 
     def compute_metrics(eval_preds):
-        preds, labels = eval_preds
-        print("==============", preds)
+        preds, labels, inputs = eval_preds
+        if type(inputs) != np.ndarray:
+            inputs = inputs['input_ids']
         preds = torch.from_numpy(preds) 
+        #print(preds[0][inputs.shape[0]:])
+        #print(preds[0][inputs.shape[1]:])
+        #print("##############################################")
+        #preds = ([pred[inputs.shape[0]:] for pred in preds])
+        #https://github.com/huggingface/transformers/issues/17117
+        preds = ([pred[inputs.shape[1]:] for pred in preds])
         labels = torch.from_numpy(labels)
         # Replace -100 in the labels as we can't decode them.
         preds = np.where(preds != -100, preds, model.tokenizer.pad_token_id)
+        #[input_ids.shape[0]:]i
         labels = np.where(labels != -100, labels, model.tokenizer.pad_token_id)
         decoded_preds = model.tokenizer.batch_decode(preds, skip_special_tokens=True)
-        print("DECODED PRED", decoded_preds)
+        print("DECODED PRED__", decoded_preds)
         decoded_labels = model.tokenizer.batch_decode(labels, skip_special_tokens=True)
-        print("DECODED LABELS", decoded_labels)
+        print("DECODED LABELS__", decoded_labels)
 
-        edit_distances = []
+        losses = []
         assert len(decoded_preds) == len(decoded_labels)
         for i in range(len(decoded_preds)):
             s1 = decoded_preds[i]
-            if s1 == "":
-                edit_distances.append(-10.0)
-                continue
             s2 = decoded_labels[i]
+            max_distance = max_edit_distance(s1, s2)
             if len(s2.split()) < num_labels:
                 continue
-            # calculate number of overlapping digits
-            # extract digits in s1 that are in s2
+            #if s1 contains characters other than digits and spaces, use edit distance
+            elif s1 == '':
+                losses.append(10.0)
+                continue
+            elif not s1.replace(" ", "").isdigit():
+                losses.append(nltk.edit_distance(s1, s2)/max_distance)
+                continue
+            # Calculate length penalty
+            length_penalty = abs(len(s1) - len(s2))
             s1_digits = [int(s) for s in s1.split() if s.isdigit()]
             s2_digits = [int(s) for s in s2.split() if s.isdigit()]
+            # character penalty: check number of numbers
+            if s1_digits == s2_digits:
+                character_penalty = 0
+            else:
+                character_penalty = abs(len(s1_digits) - len(s2_digits))
 
-            diff = sum(abs(s) for s in s1_digits) - sum(abs(s) for s in s2_digits)
+            # Calculate ordinal number penalty 
+            ordinal_penalty = abs(sum(s1_digits) - sum(s2_digits)) 
 
-            overlap = set(s1_digits).intersection(set(s2_digits))
+            # overlap penalty
+            overlap_penalty = 0
+            for elem in s1_digits + s2_digits:
+                if elem in s1_digits and elem in s2_digits:
+                    continue
+                else:
+                    overlap_penalty += 1
 
-            edit_distances.append(-nltk.edit_distance(s1, s2)/10 - diff + len(overlap))
+            #print("length_penalty", length_penalty)
+            #print("character_penalty", character_penalty)
+            #print("ordinal_penalty", ordinal_penalty)
 
+            # Combine the penalties with their respective weights
+            length_penalty_weight = 0.2
+            character_penalty_weight = 0.2
+            ordinal_penalty_weight = 0.2
+            overlap_penalty_weight = 0.2
+            total_loss = (
+                length_penalty_weight * length_penalty +
+                character_penalty_weight * character_penalty +
+                ordinal_penalty_weight * ordinal_penalty +
+                overlap_penalty_weight * overlap_penalty
+            )
+            #losses.append(total_loss)
+            losses.append(min(total_loss, 1))
+            '''
+            if len(s2.split()) < num_labels:
+                continue
+            #if s1 contains characters other than digits and spaces, use edit distance
+            elif s1 == '':
+                losses.append(1.0)
+                continue
+            elif not s1.replace(" ", "").isdigit():
+                losses.append((len(s2)+nltk.edit_distance(s1, s2))/max(losses))
+                continue
+
+            #if s1 contains only digits and spaces, use wasserstein distance 
+            s1_digits = [int(s) for s in s1.split() if s.isdigit()]
+            s2_digits = [int(s) for s in s2.split() if s.isdigit()]
+            dist = scipy.stats.wasserstein_distance(s1_digits, s2_digits)
+            #diff = sum(abs(s) for s in s1_digits) - sum(abs(s) for s in s2_digits)
+            #overlap = set(s1_digits).intersection(set(s2_digits))
+            #losses.append(-nltk.edit_distance(s1, s2)/10 - diff + len(overlap))
+            losses.append((dist+nltk.edit_distance(s1, s2))/max(losses))
+            '''
 
         # Some simple post-processing
         #######################BEFORE AND AFTER ARE THE SAME #########################
-        print("edit_distances", edit_distances)
-        return {'edit_distance': np.mean(edit_distances)}
+        print("losses", losses, "mean", np.mean(losses))
+        return {'losses': losses, 'train_loss': np.mean(losses)}
         #model.compute_metrics(eval_preds, label_pad_token_id=-100)
 
     model.set_tokenized_dataset(tokenized_dataset)
