@@ -1,5 +1,6 @@
 import numpy as np
-from pandas import read_csv
+import pandas as pd
+pd.options.mode.chained_assignment = None  # default='warn'
 from datasets import Dataset, DatasetDict
 from torch.utils.data import DataLoader
 from accelerate import Accelerator
@@ -13,12 +14,10 @@ RANDOM_SEED = 42
 def get_batch_size():
     return BATCH_SIZE
 
-def seed_init_fn(x):
-    seed = args.seed + x
+def seed_init_fn(seed):
     np.random.seed(seed)
     random.seed(seed)
     torch.manual_seed(seed)
-    return
 
 def get_num_labels(dataset_name):
     if dataset_name in ['SChem5Labels', 'Sentiment']:
@@ -33,13 +32,15 @@ def get_num_labels(dataset_name):
 
 def format_dataset(filename, dataset_name, mode="sorted"):
     np.random.seed(RANDOM_SEED)
-    df = read_csv(filename)
+    df = pd.read_csv(filename)
     df = df[df['dataset_name'] == dataset_name]
     # since nans are already removed here (still checking below just in case), we may have lists that are shorter than expected
     if mode == "sorted":
         for col in ['human_annots', 'model_annots']:
             df[col] = df[col].apply(lambda x: sorted([i if i != 'nan' else -1 for i in np.fromstring(x[1:-1].replace('.',''), dtype=int, sep=' ')]))
-            df[f'{col}_str'] = df[col].apply(lambda x: ' '.join([str(i) for i in x]))
+            #print(">>>", type(df[col][0]), df[col][0])
+            df[f'{col}_str'] = df[col].apply(lambda x: " ".join([str(i) for i in x]))
+            ##" ".join([str(i) for i in x]))
     elif "frequency" in mode:# [frequency, reverse_frequency]
         for col in ['human_annots', 'model_annots']:
             for i in range(df[col].shape[0]):
@@ -52,9 +53,13 @@ def format_dataset(filename, dataset_name, mode="sorted"):
                 df[col][i] = list(new_str)
             df[f'{col}_str'] = df[col].apply(lambda x: (' '.join(list(x))))
     elif mode == "shuffle":
-            df[col] = df[col].apply(lambda x: np.random.shuffle([i if i != 'nan' else -1 for i in np.fromstring(x[1:-1].replace('.',''), dtype=int, sep=' ')]))
-            df[f'{col}_str'] = df[col].apply(lambda x: ' '.join([str(i) for i in x]))
-
+        for col in ['human_annots', 'model_annots']:
+            for i in range(df[col].shape[0]):
+                x = df[col][i][1:-1].replace('.','').split()
+                x = [el if el != 'nan' else -1 for el in x]
+                random.shuffle(x)
+                df[col][i] = [str(el) for el in x]
+            df[f'{col}_str'] = df[col].apply(lambda x: (' '.join(list(x))))
     # remove last sentence fragment for multi-label tasks
     df['short_prompt'] = df['prompt'].apply(lambda x: x[(x.index("Sentence: ")):].replace("Among the given options, I think the most appropriate option is (",""))
             #.replace("Sentence: ", "##### Sentence #####\n")\
@@ -63,17 +68,17 @@ def format_dataset(filename, dataset_name, mode="sorted"):
 
 def split(df, suffix=''):
     # count rows in each df
-    '''
-    train_data = df.sample(frac=0.01, random_state=42)
-    val_data = train_data
-    #df.sample(frac=0.1, random_state=42)
-    test_data = val_data
-    #df.sample(frac=0.1, random_state=42)
-    '''
-    train_data = df.sample(frac=0.8, random_state=42)
-    val_data = df.drop(train_data.index).sample(frac=0.5, random_state=42)
-    test_data = df.drop(train_data.index).drop(val_data.index)
-    #'''     
+    testing = True 
+    if testing:
+        train_data = df.sample(frac=0.01, random_state=RANDOM_SEED*3)
+        val_data = train_data
+        #df.sample(frac=0.1, random_state=42)
+        test_data = val_data
+        #df.sample(frac=0.1, random_state=42)
+    else:
+        train_data = df.sample(frac=0.8, random_state=RANDOM_SEED)
+        val_data = df.drop(train_data.index).sample(frac=0.5, random_state=RANDOM_SEED*2)
+        test_data = df.drop(train_data.index).drop(val_data.index)
     train_data.reset_index(drop=True, inplace=True)
     val_data.reset_index(drop=True, inplace=True)
     test_data.reset_index(drop=True, inplace=True)
@@ -87,11 +92,9 @@ def split(df, suffix=''):
         "test": Dataset.from_pandas(test_data)
     })
 
-def get_data(filename, dataset_name):
+def get_data(filename, dataset_name, mode="sorted"):
     # returns DatasetDict with train, val, test
-    model_df = format_dataset(filename, dataset_name)
-    print("=====================+" + filename + "=====================")
-    print(model_df)
+    model_df = format_dataset(filename, dataset_name, mode)
     dataset = split(model_df) 
     #print(f"Train dataset size: {len(intra_dataset['train'])}")
     #print(f"Test dataset size: {len(inter_dataset['test'])}")
@@ -103,7 +106,7 @@ def get_dataloader(filename):
     dataloader = DataLoader(data, batch_size=BATCH_SIZE, shuffle=False, worker_init_fn = seed_init_fn)
     return dataloader
 
-def get_tokenized_data(filename, dataset, tokenizer, col_for_num_labels, remove_columns):
+def get_tokenized_data(filename, dataset, tokenizer, col_for_num_labels, remove_columns, mode="sorted"):
     def preprocess_function(sample, target="model_annots_str"):
     #def preprocess_function(sample, padding="max_length", target="model_annots_str", max_target_length=32):
         # target is just labels so we can hardcode it as 32
@@ -132,7 +135,7 @@ def get_tokenized_data(filename, dataset, tokenizer, col_for_num_labels, remove_
         model_inputs["labels"] = labels["input_ids"]
         return model_inputs
 
-    data = get_data(filename, dataset)
+    data = get_data(filename, dataset, mode)
     # TODO: maybe pass in columns to remove
     tokenized_data = data.map(
             preprocess_function, 

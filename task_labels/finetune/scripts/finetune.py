@@ -22,6 +22,7 @@ import nltk
 from transformers import DataCollatorForSeq2Seq, AutoModelForSeq2SeqLM, DataCollatorWithPadding
 from peft import get_peft_model, LoraConfig, TaskType
 from accelerate import Accelerator
+from transformers import T5Tokenizer, T5ForConditionalGeneration
 accelerator = Accelerator()
 import math
 import scipy
@@ -42,6 +43,38 @@ def calc_num_outcomes(num_labels):
     # all possible combinations (ignore order) of num_labels)
     return math.factorial(5)/(math.factorial(5-num_labels)*math.factorial(num_labels))
 
+class CustomT5Model(T5ForConditionalGeneration):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        print("DO I GET HEREEEEEE")
+        #self.allowed_token_ids = torch.tensor([209, 204, 220, 314, 305]).cuda()
+
+    def forward_nah(self, *args, **kwargs):
+        print("DO I GET HEREEEEEEi22222222222")
+        outputs = super().forward(*args, **kwargs)
+        logits = outputs.logits
+        mask = torch.full_like(logits, -1e9)
+        print("BEFOREEEE mask", mask.shape)
+        #print(mask[:, :, self.allowed_token_ids])
+        #mask[:, :, self.allowed_token_ids] = 0
+        print("AFTERRRRR  mask", mask.shape)
+        #print(mask[:, :, self.allowed_token_ids])
+        logits = logits + mask
+        return torch.nn.functional.log_softmax(logits, dim=-1)
+
+class MyT5DecoderModule(torch.nn.Module):
+    def __init__(self, base_model):
+        super().__init__()
+        self.base_model = base_model
+        self.allowed_token_ids = torch.tensor([209, 204, 220, 314, 305])
+
+    def forward(self, *args, **kwargs):
+        original_logits = self.base_model(*args, **kwargs).logits
+        mask = torch.ones_like(original_logits) * -1e9 
+        print("BEFOREEEE mask", mask.shape)
+        mask[:,:,self.allowed_token_ids] = 0
+        print("AFTERRRRR  mask", mask.shape)
+        return original_logits + mask
 
 
 def debug_dc():
@@ -62,9 +95,11 @@ class Model:
                 task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1
                 #task_type=TaskType.SEQ_2_SEQ_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1
             )
-            self.model = T5ForConditionalGeneration.from_pretrained(model_name)
-            self.model = get_peft_model(self.model, peft_config)
-            self.model.print_trainable_parameters()
+            #base_model = T5ForConditionalGeneration.from_pretrained(model_name)
+            self.model = CustomT5Model.from_pretrained(model_name)
+            #self.model = T5ForConditionalGeneration(MyT5DecoderModule(base_model))
+            #self.model = get_peft_model(self.model, peft_config)
+            #self.model.print_trainable_parameters()
             self.model.to(accelerator.device)
         #elif "t5" in model_name:
         #    from transformers import T5ForConditionalGeneration, AutoTokenizer
@@ -100,9 +135,9 @@ class Model:
             trainer = CustomSeq2SeqTrainer
             training_args = Seq2SeqTrainingArguments
         print(accelerator.num_processes)
-        generation_config = GenerationConfig.from_pretrained(self.model_name)
-        generation_config.max_new_tokens = 5
-        generation_config.min_new_tokens = 5
+        #generation_config = GenerationConfig.from_pretrained(self.model_name)
+        #generation_config.max_new_tokens = 5
+        #generation_config.min_new_tokens = 5
         # Define training args
         self.training_args = training_args(
             output_dir=repository_id,
@@ -129,7 +164,7 @@ class Model:
             hub_strategy="every_save",
             hub_model_id=repository_id,
             hub_token=HfFolder.get_token(),
-            generation_config=generation_config,
+            #generation_config=generation_config,
         )
         # Create Trainer instance
         if not is_roberta:
@@ -166,6 +201,7 @@ class Model:
         '''
         self.trainer = trainer(
             model=self.model,
+            tokenizer=self.tokenizer,
             args=self.training_args,
             optimizers=(optimizer, scheduler),
             data_collator=data_collator,
@@ -183,27 +219,11 @@ class Model:
         self.tokenizer.save_pretrained(repository_id)
         self.trainer.create_model_card()
         self.trainer.push_to_hub()
-'''
-def compute_metrics_(eval_preds):
-    preds, labels = eval_preds
-    if isinstance(preds, tuple):
-        preds = preds[0]
-    decoded_preds = self.tokenizer.batch_decode(preds, skip_special_tokens=True)
-    # Replace -100 in the labels as we can't decode them.
-    #labels = np.where(labels != -100, labels, self.tokenizer.pad_token_id)
-    decoded_labels = self.tokenizer.batch_decode(labels, skip_special_tokens=True)
 
-    edit_distances = []
-    assert len(decoded_preds) == len(decoded_labels)
-    for i in range(len(decoded_preds)):
-        s1 = decoded_preds[i]
-        s2 = decoded_labels[i]
-        edit_distances.append(nltk.edit_distance(s1, s2))
+        
+def restrict_decode_vocab(a, b):
+    return [209, 204, 220, 314, 305]
 
-    # Some simple post-processing
-    #######################BEFORE AND AFTER ARE THE SAME #########################
-    return {'edit_distance': np.mean(edit_distances)}
-'''
 def max_edit_distance(target, output):
     # Step 1: Find the maximum length difference
     length_difference = abs(len(target) - len(output))
@@ -230,63 +250,47 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]
     else:
         raise Exception("dataset_name not supported or not entered")
     model = Model(model_id, num_labels=pow(num_labels, 5))
-    tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, model.tokenizer, col_for_num_labels, remove_columns=remove_columns)
+    model.model.generation_config.max_new_tokens = 5
+    model.model.generation_config.min_new_tokens = 5
+    model.model.generation_config.num_beams = 1
+    model.model.generation_config.do_sample = False
+    #model.model.generation_config.return_dict_in_generate = True
+    model.model.generation_config.prefix_allowed_tokens_fn = "lambda a, b: [209, 204, 220, 314, 305]"
+    #model.model.generation_config.prefix_allowed_tokens_fn = restrict_decode_vocab
+    #tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, model.tokenizer, col_for_num_labels, remove_columns=remove_columns, mode='sorted')
+    #tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, model.tokenizer, col_for_num_labels, remove_columns=remove_columns, mode='frequency')
+    tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, model.tokenizer, col_for_num_labels, remove_columns=remove_columns, mode='shuffle')
+
     if 'intra' in filename: 
         repository_id = f"{model_id.replace('/','-')}-intra_model"
     else:
         repository_id = f"{model_id.replace('/','-')}-inter_model"
-        
-    def compute_metrics_(eval_preds):
-        print(eval_preds)
-        print('+++++++++++++++++++++++++++++++++++++++++++++++EVAL_PRED')
-        output, target = eval_preds
-
-        #(output, target, length_penalty_weight, character_penalty_weight, ordinal_penalty_weight):
-        # Calculate length penalty (MSE loss)
-        length_penalty = torch.mean((len(output) - len(target))**2)
-        print("length_penalty", length_penalty)
-
-        # Calculate character penalty (Cross-entropy loss)
-        character_penalty = -torch.sum(target * torch.log(output + 1e-8) + (1 - target) * torch.log(1 - output + 1e-8))
-        print("character_penalty", character_penalty)
-
-        # Calculate ordinal number penalty (MSE loss)
-        ordinal_penalty = torch.mean((output - target)**2)
-        print("ordinal_penalty", ordinal_penalty)
-
-        print('+++++++++++++++++++++++++++++++++++++++++++++++')
-        raise Exception("stop")
-
-        # Combine the penalties with their respective weights
-        total_loss = (
-            length_penalty_weight * length_penalty + 
-            character_penalty_weight * character_penalty + 
-            ordinal_penalty_weight * ordinal_penalty
-        )
-
-        return total_loss
 
     def compute_metrics(eval_preds):
-        preds, labels, inputs = eval_preds
-        if type(inputs) != np.ndarray:
-            inputs = inputs['input_ids']
-        preds = torch.from_numpy(preds) 
-        #print(preds[0][inputs.shape[0]:])
-        #print(preds[0][inputs.shape[1]:])
-        #print("##############################################")
-        #preds = ([pred[inputs.shape[0]:] for pred in preds])
-        #https://github.com/huggingface/transformers/issues/17117
-        preds = ([pred[inputs.shape[1]:] for pred in preds])
-        labels = torch.from_numpy(labels)
+        preds, labels = eval_preds
+        print("PREDS", preds)
+        print("LABELS", labels)
+        #print("INPUTS", inputs)
+        if type(preds) != np.ndarray:
+            pass
+            #inputs = inputs['input_ids']
+        else:
+            preds = torch.from_numpy(preds) 
+            #preds = ([pred[inputs.shape[0]:] for pred in preds])
+            #https://github.com/huggingface/transformers/issues/17117
+            #preds = ([pred[inputs.shape[1]:] for pred in preds])
+            labels = torch.from_numpy(labels)
         # Replace -100 in the labels as we can't decode them.
-        preds = np.where(preds != -100, preds, model.tokenizer.pad_token_id)
+        ######preds = np.where(preds != -100, preds, model.tokenizer.pad_token_id)
         #[input_ids.shape[0]:]i
-        labels = np.where(labels != -100, labels, model.tokenizer.pad_token_id)
+        #labels = np.where(labels != -100, labels, model.tokenizer.pad_token_id)
         decoded_preds = model.tokenizer.batch_decode(preds, skip_special_tokens=True)
-        print("DECODED PRED__", decoded_preds)
         decoded_labels = model.tokenizer.batch_decode(labels, skip_special_tokens=True)
-        print("DECODED LABELS__", decoded_labels)
-
+        for i in range(len(decoded_preds)):
+            print("decoded_preds", decoded_preds[i])
+            print("decoded_labels", decoded_labels[i])
+            print("")
+            break
         losses = []
         assert len(decoded_preds) == len(decoded_labels)
         for i in range(len(decoded_preds)):
@@ -370,11 +374,11 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]
     model.set_tokenized_dataset(tokenized_dataset)
     model.set_training_var(repository_id, compute_metrics)
     model.trainer.train()
-    model.trainer.evaluate()
-    model.model.save_pretrained("output_dir") 
-    model.tokenizer.save_pretrained(repository_id)
-    model.trainer.create_model_card()
-    model.trainer.push_to_hub()
+    #model.trainer.evaluate()
+    #model.model.save_pretrained("output_dir") 
+    #model.tokenizer.save_pretrained(repository_id)
+    #model.trainer.create_model_card()
+    #model.trainer.push_to_hub()
 
 
 # Hugging Face repository id
