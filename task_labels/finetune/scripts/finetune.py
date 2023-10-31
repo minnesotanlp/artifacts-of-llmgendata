@@ -2,6 +2,7 @@ import evaluate
 import os
 os.environ["WANDB_PROJECT"] = "artifacts"
 os.environ["WANDB_LOG_MODEL"] = "checkpoint"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 import torch
 import random
 from random import randrange        
@@ -10,9 +11,11 @@ from pandas import read_csv
 from datasets import load_dataset, concatenate_datasets, DatasetDict, Dataset
 import numpy as np
 from huggingface_hub import HfFolder
+import transformers
 from transformers import (
     pipeline,
     AdamW,
+    Adafactor,
     get_linear_schedule_with_warmup,
     get_cosine_schedule_with_warmup,
     EarlyStoppingCallback,
@@ -38,6 +41,8 @@ label_pad_token_id = -100
 # Data collator
 BATCH_SIZE = utils.get_batch_size()
 LR = 1e-4
+from typing import List, Optional, Tuple, Union
+from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 
 def calc_num_outcomes(num_labels):
     # all possible combinations (ignore order) of num_labels)
@@ -46,22 +51,154 @@ def calc_num_outcomes(num_labels):
 class CustomT5Model(T5ForConditionalGeneration):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        print("DO I GET HEREEEEEE")
-        #self.allowed_token_ids = torch.tensor([209, 204, 220, 314, 305]).cuda()
+        config = args[0]
+        print("KWARGS", kwargs)
+        if 'num_labels' in kwargs:
+            self.lm_head = torch.nn.Linear(config.d_model, kwargs.pop('num_labels'), bias=False)
+            self.allowed_token_ids = torch.tensor([209, 204, 220, 314, 305]).cuda()
+    
+    def forward(
+        self, 
+        input_ids: Optional[torch.LongTensor] = None,
+        attention_mask: Optional[torch.FloatTensor] = None,
+        decoder_input_ids: Optional[torch.LongTensor] = None,
+        decoder_attention_mask: Optional[torch.BoolTensor] = None,
+        head_mask: Optional[torch.FloatTensor] = None,
+        decoder_head_mask: Optional[torch.FloatTensor] = None,
+        cross_attn_head_mask: Optional[torch.Tensor] = None,
+        encoder_outputs: Optional[Tuple[Tuple[torch.Tensor]]] = None,
+        past_key_values: Optional[Tuple[Tuple[torch.Tensor]]] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        decoder_inputs_embeds: Optional[torch.FloatTensor] = None,
+        labels: Optional[torch.LongTensor] = None,
+        use_cache: Optional[bool] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+    ):
+        ##outputs = super().forward(input_ids, attention_mask, decoder_input_ids, decoder_attention_mask, head_mask, decoder_head_mask, cross_attn_head_mask, encoder_outputs, past_key_values, inputs_embeds, decoder_inputs_embeds, labels, use_cache, output_attentions, output_hidden_states, return_dict)
+        use_cache = use_cache if use_cache is not None else self.config.use_cache
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
-    def forward_nah(self, *args, **kwargs):
+        # FutureWarning: head_mask was separated into two input args - head_mask, decoder_head_mask
+        if head_mask is not None and decoder_head_mask is None:
+            if self.config.num_layers == self.config.num_decoder_layers:
+                warnings.warn(__HEAD_MASK_WARNING_MSG, FutureWarning)
+                decoder_head_mask = head_mask
+
+        # Encode if needed (training, first prediction pass)
+        if encoder_outputs is None:
+            # Convert encoder inputs in embeddings if needed
+            encoder_outputs = self.encoder(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                inputs_embeds=inputs_embeds,
+                head_mask=head_mask,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
+            )
+        elif return_dict and not isinstance(encoder_outputs, transformers.modeling_outputs.BaseModelOutput):
+            encoder_outputs = transformers.modeling_outputs.BaseModelOutput(
+                last_hidden_state=encoder_outputs[0],
+                hidden_states=encoder_outputs[1] if len(encoder_outputs) > 1 else None,
+                attentions=encoder_outputs[2] if len(encoder_outputs) > 2 else None,
+            )
+
+        hidden_states = encoder_outputs[0]
+
+        if self.model_parallel:
+            torch.cuda.set_device(self.decoder.first_device)
+
+        if labels is not None and decoder_input_ids is None and decoder_inputs_embeds is None:
+            # get decoder inputs from shifting lm labels to the right
+            decoder_input_ids = self._shift_right(labels)
+
+        # Set device for model parallelism
+        if self.model_parallel:
+            torch.cuda.set_device(self.decoder.first_device)
+            hidden_states = hidden_states.to(self.decoder.first_device)
+            if decoder_input_ids is not None:
+                decoder_input_ids = decoder_input_ids.to(self.decoder.first_device)
+            if attention_mask is not None:
+                attention_mask = attention_mask.to(self.decoder.first_device)
+            if decoder_attention_mask is not None:
+                decoder_attention_mask = decoder_attention_mask.to(self.decoder.first_device)
+
+        decoder_outputs = self.decoder(
+            input_ids=decoder_input_ids,
+            attention_mask=decoder_attention_mask,
+            inputs_embeds=decoder_inputs_embeds,
+            past_key_values=past_key_values,
+            encoder_hidden_states=hidden_states,
+            encoder_attention_mask=attention_mask,
+            head_mask=decoder_head_mask,
+            cross_attn_head_mask=cross_attn_head_mask,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+
+        sequence_output = decoder_outputs[0]
+
+        # Set device for model parallelism
+        if self.model_parallel:
+            torch.cuda.set_device(self.encoder.first_device)
+            self.lm_head = self.lm_head.to(self.encoder.first_device)
+            sequence_output = sequence_output.to(self.lm_head.weight.device)
+
+        if self.config.tie_word_embeddings:
+            # Rescale output before projecting on vocab
+            # See https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/transformer/transformer.py#L586
+            sequence_output = sequence_output * (self.model_dim**-0.5)
+
+        lm_logits = self.lm_head(sequence_output)
+        print("LM_LOGITS", lm_logits)
+        print("LM_LOGITS SHAPE", lm_logits.shape)
+        raise Exception("STOP")
+
+        mask = torch.ones_like(lm_logits) * -1e9 
+        mask[:,:,self.allowed_token_ids] = 0
+        lm_logits = lm_logits + mask
+
+        loss = None
+        if labels is not None:
+            loss_fct = CrossEntropyLoss(ignore_index=-100)
+            # move labels to correct device to enable PP
+            labels = labels.to(lm_logits.device)
+            loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
+        if not return_dict:
+            output = (lm_logits,) + decoder_outputs[1:] + encoder_outputs
+            return ((loss,) + output) if loss is not None else output
+
+        return transformers.modeling_outputs.Seq2SeqLMOutput(
+            loss=loss,
+            logits=lm_logits,
+            past_key_values=decoder_outputs.past_key_values,
+            decoder_hidden_states=decoder_outputs.hidden_states,
+            decoder_attentions=decoder_outputs.attentions,
+            cross_attentions=decoder_outputs.cross_attentions,
+            encoder_last_hidden_state=encoder_outputs.last_hidden_state,
+            encoder_hidden_states=encoder_outputs.hidden_states,
+            encoder_attentions=encoder_outputs.attentions,
+        )
+
+    '''
+        super().forward(*args, **kwargs)
+
+        return super().forward(*args, **kwargs)
         print("DO I GET HEREEEEEEi22222222222")
         outputs = super().forward(*args, **kwargs)
         logits = outputs.logits
-        mask = torch.full_like(logits, -1e9)
         print("BEFOREEEE mask", mask.shape)
         #print(mask[:, :, self.allowed_token_ids])
         #mask[:, :, self.allowed_token_ids] = 0
         print("AFTERRRRR  mask", mask.shape)
         #print(mask[:, :, self.allowed_token_ids])
-        logits = logits + mask
+        #logits = logits + mask
         return torch.nn.functional.log_softmax(logits, dim=-1)
-
+    '''
 class MyT5DecoderModule(torch.nn.Module):
     def __init__(self, base_model):
         super().__init__()
@@ -81,7 +218,7 @@ def debug_dc():
     return DataCollatorWithPadding(tokenizer=self.tokenizer)#, pad_to_multiple_of=8)
 
 class Model:
-    def __init__(self, model_name, num_labels=0):
+    def __init__(self, model_name, num_labels=0, num_annots=0):
         self.model_name = model_name
         if "roberta" in model_name:
             from transformers import RobertaTokenizerFast, RobertaForSequenceClassification
@@ -90,16 +227,18 @@ class Model:
         elif "t5" in model_name:
             from transformers import DataCollatorForSeq2Seq, AutoModelForSeq2SeqLM, AutoTokenizer
             from transformers import T5Tokenizer, T5ForConditionalGeneration
+            import transformers
+            print(transformers.__file__)
             self.tokenizer = T5Tokenizer.from_pretrained(model_name)
             peft_config = LoraConfig(
                 task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1
                 #task_type=TaskType.SEQ_2_SEQ_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1
             )
-            #base_model = T5ForConditionalGeneration.from_pretrained(model_name)
+            #self.model = T5ForConditionalGeneration.from_pretrained(model_name)
             self.model = CustomT5Model.from_pretrained(model_name)
             #self.model = T5ForConditionalGeneration(MyT5DecoderModule(base_model))
-            #self.model = get_peft_model(self.model, peft_config)
-            #self.model.print_trainable_parameters()
+            self.model = get_peft_model(self.model, peft_config)
+            self.model.print_trainable_parameters()
             self.model.to(accelerator.device)
         #elif "t5" in model_name:
         #    from transformers import T5ForConditionalGeneration, AutoTokenizer
@@ -122,7 +261,8 @@ class Model:
             {'params': [p for n, p in self.model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
         ]
         optimizer = AdamW(optimizer_grouped_parameters, lr=LR)
-        scheduler =  get_linear_schedule_with_warmup(optimizer, num_warmup_steps=10, num_training_steps=100)
+        #optimizer = Adafactor(self.model.parameters(), relative_step=False, warmup_init=False, lr=LR)
+        scheduler =  get_linear_schedule_with_warmup(optimizer, num_warmup_steps=10, num_training_steps=10000)
 
         is_roberta = "roberta" in self.model_name
         if is_roberta:
@@ -131,13 +271,14 @@ class Model:
             training_args = TrainingArguments
         elif "t5" in self.model_name:
             from transformers import Seq2SeqTrainer, Seq2SeqTrainingArguments
-            #trainer = Seq2SeqTrainer
-            trainer = CustomSeq2SeqTrainer
+            trainer = Seq2SeqTrainer
             training_args = Seq2SeqTrainingArguments
+            #trainer = CustomSeq2SeqTrainer
+            #training_args = Seq2SeqTrainingArguments
         print(accelerator.num_processes)
         #generation_config = GenerationConfig.from_pretrained(self.model_name)
-        #generation_config.max_new_tokens = 5
-        #generation_config.min_new_tokens = 5
+        #generation_config.max_new_tokens = num_annots
+        #generation_config.min_new_tokens = num_annots
         # Define training args
         self.training_args = training_args(
             output_dir=repository_id,
@@ -148,7 +289,7 @@ class Model:
             fp16_full_eval=True,#########
             dataloader_num_workers=accelerator.num_processes,
             learning_rate=LR,
-            num_train_epochs=30,
+            num_train_epochs=200,
             logging_dir=f"{repository_id}/logs",
             logging_strategy="steps",
             logging_steps=10,
@@ -171,20 +312,18 @@ class Model:
             data_collator = DataCollatorForSeq2Seq(
                 tokenizer=self.tokenizer,
                 model=self.model,
-                label_pad_token_id=label_pad_token_id,
+                #label_pad_token_id=label_pad_token_id,
                 #pad_to_multiple_of=8
             )
         else:
             from transformers import DataCollatorWithPadding
             #data_collator = DataCollatorWithPadding(tokenizer=self.tokenizer)#, pad_to_multiple_of=8)
-            print('self.tokenized_dataset["train"]', self.tokenized_dataset["train"].shape)
             data_collator = DataCollatorForSeq2Seq(
                 tokenizer=self.tokenizer,
                 model=self.model,
                 #label_pad_token_id=-100,
                 #pad_to_multiple_of=8
             )
-            print('self.tokenized_dataset["val"]', self.tokenized_dataset["val"].shape)
         early_stopping = EarlyStoppingCallback(early_stopping_patience=3)
         '''
         "return_dict_in_generate": True,
@@ -211,16 +350,6 @@ class Model:
             compute_metrics=compute_metrics,
         )
         
-    def tbd(self):
-        # throwing in here for now
-        self.trainer.train()
-        self.trainer.evaluate()
-        self.model.save_pretrained("output_dir") 
-        self.tokenizer.save_pretrained(repository_id)
-        self.trainer.create_model_card()
-        self.trainer.push_to_hub()
-
-        
 def restrict_decode_vocab(a, b):
     return [209, 204, 220, 314, 305]
 
@@ -238,7 +367,7 @@ def max_edit_distance(target, output):
     max_distance = length_difference + char_difference
     return max_distance
 
-def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]):
+def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[], dataset_mode='sorted'):
     #model = Model("google/t5-v1_1-base")
     #model = Model("google/flan-t5-small")
     if dataset_name in ['SChem5Labels', 'Sentiment']:
@@ -249,48 +378,41 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]
         num_labels = 2
     else:
         raise Exception("dataset_name not supported or not entered")
-    model = Model(model_id, num_labels=pow(num_labels, 5))
-    model.model.generation_config.max_new_tokens = 5
-    model.model.generation_config.min_new_tokens = 5
+    if dataset_name in ['SChem5Labels']:
+        num_annots = 5
+    elif dataset_name in ['Sentiment']:
+        num_annots = 4
+    elif dataset_name in ['SBIC', 'ghc']:
+        num_annots = 3
+    model = Model(model_id, num_labels=num_labels, num_annots=num_annots)
+    model.model.generation_config.max_new_tokens = num_annots
+    model.model.generation_config.min_new_tokens = num_annots
     model.model.generation_config.num_beams = 1
     model.model.generation_config.do_sample = False
     #model.model.generation_config.return_dict_in_generate = True
     model.model.generation_config.prefix_allowed_tokens_fn = "lambda a, b: [209, 204, 220, 314, 305]"
     #model.model.generation_config.prefix_allowed_tokens_fn = restrict_decode_vocab
-    #tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, model.tokenizer, col_for_num_labels, remove_columns=remove_columns, mode='sorted')
-    #tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, model.tokenizer, col_for_num_labels, remove_columns=remove_columns, mode='frequency')
-    tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, model.tokenizer, col_for_num_labels, remove_columns=remove_columns, mode='shuffle')
+    tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, model.tokenizer, col_for_num_labels, remove_columns=remove_columns, mode=dataset_mode)
 
     if 'intra' in filename: 
-        repository_id = f"{model_id.replace('/','-')}-intra_model"
+        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra_model"
     else:
-        repository_id = f"{model_id.replace('/','-')}-inter_model"
+        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter_model"
 
     def compute_metrics(eval_preds):
-        preds, labels = eval_preds
-        print("PREDS", preds)
-        print("LABELS", labels)
-        #print("INPUTS", inputs)
-        if type(preds) != np.ndarray:
-            pass
-            #inputs = inputs['input_ids']
-        else:
+        if type(eval_preds) == transformers.trainer_utils.EvalPrediction:
+            preds = eval_preds.predictions
+            labels = eval_preds.label_ids
+        elif type(preds) == np.ndarray:
             preds = torch.from_numpy(preds) 
-            #preds = ([pred[inputs.shape[0]:] for pred in preds])
-            #https://github.com/huggingface/transformers/issues/17117
-            #preds = ([pred[inputs.shape[1]:] for pred in preds])
             labels = torch.from_numpy(labels)
+        else:
+            preds, labels = eval_preds
         # Replace -100 in the labels as we can't decode them.
-        ######preds = np.where(preds != -100, preds, model.tokenizer.pad_token_id)
-        #[input_ids.shape[0]:]i
-        #labels = np.where(labels != -100, labels, model.tokenizer.pad_token_id)
+        preds = np.where(preds != -100, preds, model.tokenizer.pad_token_id)
+        labels = np.where(labels != -100, labels, model.tokenizer.pad_token_id)
         decoded_preds = model.tokenizer.batch_decode(preds, skip_special_tokens=True)
         decoded_labels = model.tokenizer.batch_decode(labels, skip_special_tokens=True)
-        for i in range(len(decoded_preds)):
-            print("decoded_preds", decoded_preds[i])
-            print("decoded_labels", decoded_labels[i])
-            print("")
-            break
         losses = []
         assert len(decoded_preds) == len(decoded_labels)
         for i in range(len(decoded_preds)):
@@ -305,6 +427,8 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]
                 continue
             elif not s1.replace(" ", "").isdigit():
                 losses.append(nltk.edit_distance(s1, s2)/max_distance)
+                print(losses[-1])
+                raise Exception('STOP')
                 continue
             # Calculate length penalty
             length_penalty = abs(len(s1) - len(s2))
@@ -368,28 +492,49 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]
         # Some simple post-processing
         #######################BEFORE AND AFTER ARE THE SAME #########################
         print("losses", losses, "mean", np.mean(losses))
-        return {'losses': losses, 'train_loss': np.mean(losses)}
+        return {'losses': losses, 'train_loss': np.mean(losses), 'eval_train_loss': np.mean(losses)}
         #model.compute_metrics(eval_preds, label_pad_token_id=-100)
 
     model.set_tokenized_dataset(tokenized_dataset)
     model.set_training_var(repository_id, compute_metrics)
     model.trainer.train()
-    #model.trainer.evaluate()
-    #model.model.save_pretrained("output_dir") 
-    #model.tokenizer.save_pretrained(repository_id)
-    #model.trainer.create_model_card()
-    #model.trainer.push_to_hub()
+    model.trainer.evaluate(
+        eval_dataset=tokenized_dataset["test"],
+    )
+    model.model.save_pretrained(repository_id) 
+    model.tokenizer.save_pretrained(repository_id)
+    model.trainer.create_model_card()
+    model.trainer.push_to_hub()
 
 
-# Hugging Face repository id
 col_for_num_labels = "human_annots"
-#def main(filename, remove_columns, repository_id, col_for_num_labels):
+'''
+main(filename = '../data/intramodel_data.csv', 
+     model_id = "google/t5-v1_1-small",#"roberta-base",
+     dataset_name = "SChem5Labels",
+     remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'],
+     col_for_num_labels = "model_annots",
+     dataset_mode = 'sorted')
+main(filename = '../data/intramodel_data.csv', 
+     model_id = "google/t5-v1_1-base",#"roberta-base",
+     dataset_name = "SChem5Labels",
+     remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'],
+     col_for_num_labels = "model_annots",
+     dataset_mode = 'sorted')
+'''
 main(filename = '../data/intramodel_data.csv', 
      model_id = "google/t5-v1_1-large",#"roberta-base",
      dataset_name = "SChem5Labels",
      remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'],
-     col_for_num_labels = "model_annots")
+     col_for_num_labels = "model_annots",
+     dataset_mode = 'sorted')
 '''
+main(filename = '../data/intramodel_data.csv', 
+     model_id = "google/t5-v1_1-small",#"roberta-base",
+     dataset_name = "Sentiment",
+     remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'],
+     col_for_num_labels = "model_annots",
+     dataset_mode = 'sorted')
 main(filename = '../data/intermodel_data.csv', 
      remove_columns = ['model_name', 'dataset_name', 'text_ind', 'prompt', 'human_annots'],
      repository_id = f"{MODEL_ID.split('/')[1]}-inter_model",
@@ -403,20 +548,3 @@ main(filename = '../data/intermodel_data.csv',
      repository_id = f"{MODEL_ID.split('/')[1]}-inter_human",
      col_for_num_labels = "human_annots")
 '''
-# load model and tokenizer from huggingface hub with pipeline
-#summarizer = pipeline("summarization", model="philschmid/flan-t5-base-samsum", device=0)
-
-# select a random test sample
-#sample = dataset['test'][randrange(len(dataset["test"]))]
-#print(f"dialogue: \n{sample['dialogue']}\n---------------")
-
-# summarize dialogue
-#res = summarizer(sample["dialogue"])
-
-#print(f"flan-t5-base summary:\n{res[0]['summary_text']}")
-
-#data_df = read_csv('../data/data.csv')
-#data_df = data_df.fillna(-1)
-# create barplot of integers inside human_annots column based on frequency
-#data_df['human_agg'].value_counts().plot(kind='bar')
-
