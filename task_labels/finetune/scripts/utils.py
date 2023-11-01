@@ -8,7 +8,7 @@ accelerator = Accelerator()
 import nltk 
 import random
 from collections import Counter
-BATCH_SIZE = 16 
+BATCH_SIZE = 32
 RANDOM_SEED = 42
 
 def get_batch_size():

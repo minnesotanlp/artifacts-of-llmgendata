@@ -59,7 +59,6 @@ class CustomT5Model(T5ForConditionalGeneration):
         # ahh so hacky
         self.tokenizer = T5Tokenizer.from_pretrained(config._name_or_path)
         self.lm_head = torch.nn.Linear(config.d_model, global_num_labels, bias=False)
-        self.allowed_token_ids = torch.tensor([209, 204, 220, 314, 305]).cuda()
     
     def forward(
         self, 
@@ -80,6 +79,7 @@ class CustomT5Model(T5ForConditionalGeneration):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
     ):
+        print('.....................', labels.shape)
         ##outputs = super().forward(input_ids, attention_mask, decoder_input_ids, decoder_attention_mask, head_mask, decoder_head_mask, cross_attn_head_mask, encoder_outputs, past_key_values, inputs_embeds, decoder_inputs_embeds, labels, use_cache, output_attentions, output_hidden_states, return_dict)
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
@@ -161,10 +161,14 @@ class CustomT5Model(T5ForConditionalGeneration):
         past = lm_logits
         lm_logits = torch.moveaxis(lm_logits, 2, 1)
         #preds = np.where(preds != -100, preds, model.tokenizer.pad_token_id)
-        labels[labels == -100] = self.tokenizer.pad_token_id 
+        try:
+            labels[labels == -100] = self.tokenizer.pad_token_id 
+        except:
+            print(labels.shape)
+            print(labels[label == -100])
+            raise Exception("STOP")
         #labels = np.where(labels != -100, labels, self.tokenizer.pad_token_id)
         #print("REPLACED LABELS", labels)
-        self.allowed_token_ids = torch.tensor([209, 204, 220, 314, 305]).cuda()
         #print("========BATCH DECODE==============")
         #print(self.tokenizer.batch_decode(labels, return_tensors="pt", skip_special_tokens=True))
         # indices are the same as labels now
@@ -225,6 +229,8 @@ class CustomT5Model(T5ForConditionalGeneration):
 class Model:
     def __init__(self, model_name, num_labels=0, num_annots=0):
         self.model_name = model_name
+        self.num_labels = num_labels
+        self.num_annots = num_annots
         if "roberta" in model_name:
             from transformers import RobertaTokenizerFast, RobertaForSequenceClassification
             self.tokenizer = RobertaTokenizerFast.from_pretrained(model_name)
@@ -341,13 +347,12 @@ class Model:
                 tokenizer=self.tokenizer,
                 model=self.model,
                 #label_pad_token_id=-100,
-                #pad_to_multiple_of=8
+                pad_to_multiple_of=num_annots
             )
-        early_stopping = EarlyStoppingCallback(early_stopping_patience=3)
+        early_stopping = EarlyStoppingCallback(early_stopping_patience=5)
         '''
         "return_dict_in_generate": True,
             "num_beams": 1, # MESS WITH THIS LATERRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR
-            "prefix_allowed_tokens_fn": restrict_decode_vocab,
             #"constraints": [
             #    DisjunctiveConstraint([[209, 204, 220, 314, 305]]),
             #],
