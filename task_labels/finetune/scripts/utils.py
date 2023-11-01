@@ -19,6 +19,17 @@ def seed_init_fn(seed):
     random.seed(seed)
     torch.manual_seed(seed)
 
+def get_num_annots(dataset_name):
+    if dataset_name in ['SChem5Labels']:
+        num_annots = 5
+    elif dataset_name in ['Sentiment']:
+        num_annots = 4
+    elif dataset_name in ['SBIC', 'ghc']:
+        num_annots = 3
+    else:
+        raise Exception("dataset_name not supported or not entered")
+    return num_annots
+
 def get_num_labels(dataset_name):
     if dataset_name in ['SChem5Labels', 'Sentiment']:
         num_labels = 5
@@ -28,7 +39,8 @@ def get_num_labels(dataset_name):
         num_labels = 2
     else:
         raise Exception("dataset_name not supported or not entered")
-    return num_labels
+    # plus 1 for the "other" labels
+    return num_labels + 1
 
 def format_dataset(filename, dataset_name, mode="sorted"):
     np.random.seed(RANDOM_SEED)
@@ -38,9 +50,7 @@ def format_dataset(filename, dataset_name, mode="sorted"):
     if mode == "sorted":
         for col in ['human_annots', 'model_annots']:
             df[col] = df[col].apply(lambda x: sorted([i if i != 'nan' else -1 for i in np.fromstring(x[1:-1].replace('.',''), dtype=int, sep=' ')]))
-            #print(">>>", type(df[col][0]), df[col][0])
-            df[f'{col}_str'] = df[col].apply(lambda x: " ".join([str(i) for i in x]))
-            ##" ".join([str(i) for i in x]))
+            df[f'{col}_str'] = df[col].apply(lambda x: "".join([str(i) for i in x]))
     elif "dataset-frequency" in mode:# [frequency, reverse_frequency]
         for col in ['human_annots', 'model_annots']:
             for i in range(df[col].shape[0]):
@@ -66,7 +76,7 @@ def format_dataset(filename, dataset_name, mode="sorted"):
                 freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
                 new_str = ''.join([str(k)*freq_dict[k] for k in freq_dict.keys()])
                 df[col][i] = list(new_str)
-            df[f'{col}_str'] = df[col].apply(lambda x: (' '.join(list(x))))
+            df[f'{col}_str'] = df[col].apply(lambda x: (''.join(list(x))))
     elif mode == "shuffle":
         for col in ['human_annots', 'model_annots']:
             for i in range(df[col].shape[0]):
@@ -74,7 +84,7 @@ def format_dataset(filename, dataset_name, mode="sorted"):
                 x = [el if el != 'nan' else -1 for el in x]
                 random.shuffle(x)
                 df[col][i] = [str(el) for el in x]
-            df[f'{col}_str'] = df[col].apply(lambda x: (' '.join(list(x))))
+            df[f'{col}_str'] = df[col].apply(lambda x: (''.join(list(x))))
     # remove last sentence fragment for multi-label tasks
     df['short_prompt'] = df['prompt'].apply(lambda x: x[(x.index("Sentence: ")):].replace("Among the given options, I think the most appropriate option is (",""))
             #.replace("Sentence: ", "##### Sentence #####\n")\
@@ -131,14 +141,12 @@ def get_tokenized_data(filename, dataset, tokenizer, col_for_num_labels, remove_
             #prompt = f"##### Predict a set of annotations from {len(sample[col_for_num_labels][i])} different people #####\n" 
             #prompt += sample['short_prompt'][i]
             #prompt += "Answer: The set of annotations from {len(sample[col_for_num_labels][i])} different people is ["
-            prompt = sample['text'][i]
+            prompt = 'Five multi-label classification results: '+sample['text'][i]
             inputs.append(prompt)
         tokenized = tokenizer(inputs, truncation=True)
         max_source_length = max([len(x) for x in tokenized["input_ids"]])
         model_inputs = tokenizer(inputs, truncation=True, padding=True)
-        labels = tokenizer(text_target=sample[target], truncation=True, padding=True)
-        #model_inputs = tokenizer(inputs, max_length=max_source_length, padding=padding, truncation=True)
-        #labels = tokenizer(text_target=sample[target], max_length=max_target_length, padding=padding, truncation=True)
+        labels = tokenizer(sample[target], truncation=True, padding=True)
 
         # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
         # padding in the loss.

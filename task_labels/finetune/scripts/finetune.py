@@ -158,10 +158,8 @@ class CustomT5Model(T5ForConditionalGeneration):
             sequence_output = sequence_output * (self.model_dim**-0.5)
 
         lm_logits = self.lm_head(sequence_output)
-        #print("LM_LOGITS", lm_logits)
-        #print("LM_LOGITS SHAPE", lm_logits.shape)
-        #print("LABELS", labels)
-        #print("TYPE LABELS", type(labels))
+        past = lm_logits
+        lm_logits = torch.moveaxis(lm_logits, 2, 1)
         #preds = np.where(preds != -100, preds, model.tokenizer.pad_token_id)
         labels[labels == -100] = self.tokenizer.pad_token_id 
         #labels = np.where(labels != -100, labels, self.tokenizer.pad_token_id)
@@ -172,23 +170,42 @@ class CustomT5Model(T5ForConditionalGeneration):
         # indices are the same as labels now
         temp = self.tokenizer.batch_decode(labels, return_tensors="pt", skip_special_tokens=True)
         #temp2 = self.tokenizer.batch_decode(lm_logits.argmax(-1), return_tensors="pt", skip_special_tokens=True)
-        temp = [t.split() for t in temp]
+        temp = [t for t in temp]
         # Ignore short labels for now (ones less than num_annots)
         labels = []
         for i in range(len(temp)):
-            labels.append([int(t) for t in temp[i]])
+            labels.append([(int(t) if int(t) < global_num_labels else global_num_labels-1) for t in temp[i]])
             if len(labels[-1]) < global_num_annots:
                 # pad this array
-                labels[-1] = labels[-1] + [self.tokenizer.pad_token_id]*(global_num_annots-len(labels[-1]))
+                #labels[-1] = labels[-1] + [self.tokenizer.pad_token_id]*(global_num_annots-len(labels[-1]))
+                labels[-1] = labels[-1] + [global_num_labels-1]*(global_num_annots-len(labels[-1]))
         labels = torch.tensor(labels).cuda()
         
         loss = None
         loss_fct = CrossEntropyLoss()#ignore_index=-100)
-        print("SHAPES", lm_logits.shape, labels.shape)
-        #print("lm_logits.view(-1, lm_logits.size(-1))", lm_logits.view(-1, lm_logits.size(-1)))
-        #print("labels.view(-1)", labels.view(-1))
         #loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
-        loss = loss_fct(lm_logits, labels)
+        debugging = False
+        if not debugging:
+            loss = loss_fct(lm_logits, labels)
+        else:
+            try:
+                loss = loss_fct(lm_logits, labels)
+            except Exception as e:
+                loss = 1#loss_fct(torch.zeros_like(), labels)
+                print(e)
+                print("type", type(self.decoder))
+                print("decoder_input_ids", decoder_input_ids)
+                print(self.generation_config)
+                print(self.lm_head)
+                print("LM_LOGITS", lm_logits)
+                print("LM_LOGITS SHAPE", lm_logits.shape)
+                print("PAST SHAPE", past.shape)
+                print("LABELS", labels)
+                print("TYPE LABELS", type(labels))
+                print("SHAPES", lm_logits.shape, labels.shape)
+                print("DECODER OUTPUTS", decoder_outputs['last_hidden_state'])
+                print("DECODER OUTPUTS", decoder_outputs['last_hidden_state'].shape)
+
         if not return_dict:
             output = (lm_logits,) + decoder_outputs[1:] + encoder_outputs
             return ((loss,) + output) if loss is not None else output
@@ -214,9 +231,18 @@ class Model:
             self.model = RobertaForSequenceClassification.from_pretrained(model_name, num_labels=calc_num_outcomes(num_labels))
         elif "t5" in model_name:
             from transformers import DataCollatorForSeq2Seq, AutoModelForSeq2SeqLM, AutoTokenizer
-            from transformers import T5Tokenizer, T5ForConditionalGeneration
+            from transformers import T5Tokenizer, T5ForConditionalGeneration, GenerationConfig
             import transformers
             print(transformers.__file__)
+            my_config = {}
+            print("NUM ANNOTS", global_num_annots)
+            my_config['max_new_tokens'] = global_num_annots
+            my_config['min_new_tokens'] = global_num_annots
+            #my_config['max_length'] = 300
+            my_config['renormalize_logits'] = True
+            #my_config['return_dict_in_generate'] = True
+            #my_config['num_beams'] = 1
+            #my_config['do_sample'] = False
             self.tokenizer = T5Tokenizer.from_pretrained(model_name)
             peft_config = LoraConfig(
                 task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1
@@ -227,6 +253,7 @@ class Model:
                 pretrained_model_name_or_path=model_name,
                 ignore_mismatched_sizes=True
             )
+            #self.model.generation_config = GenerationConfig.from_dict(my_config)
             #self.model = T5ForConditionalGeneration(MyT5DecoderModule(base_model))
             self.model = get_peft_model(self.model, peft_config)
             self.model.print_trainable_parameters()
@@ -276,6 +303,7 @@ class Model:
             per_device_train_batch_size=BATCH_SIZE,
             per_device_eval_batch_size=BATCH_SIZE,
             predict_with_generate=True,
+            generation_config=self.model.generation_config,
             fp16=True,############3
             fp16_full_eval=True,#########
             dataloader_num_workers=accelerator.num_processes,
@@ -362,32 +390,10 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]
     global global_num_labels, global_num_annots
     #model = Model("google/t5-v1_1-base")
     #model = Model("google/flan-t5-small")
-    if dataset_name in ['SChem5Labels', 'Sentiment']:
-        num_labels = 5
-    elif dataset_name in ['SBIC']:
-        num_labels = 3
-    elif dataset_name in ['ghc']:
-        num_labels = 2
-    else:
-        raise Exception("dataset_name not supported or not entered")
-    if dataset_name in ['SChem5Labels']:
-        num_annots = 5
-    elif dataset_name in ['Sentiment']:
-        num_annots = 4
-    elif dataset_name in ['SBIC', 'ghc']:
-        num_annots = 3
-    global_num_labels = num_labels
-    global_num_annots = num_annots
-    model = Model(model_id, num_labels=num_labels, num_annots=num_annots)   
-    model.model.generation_config.max_new_tokens = num_annots
-    model.model.generation_config.min_new_tokens = num_annots
-    model.model.generation_config.num_beams = 1
-    model.model.generation_config.do_sample = False
-    #model.model.generation_config.return_dict_in_generate = True
-    model.model.generation_config.prefix_allowed_tokens_fn = "lambda a, b: [209, 204, 220, 314, 305]"
-    #model.model.generation_config.prefix_allowed_tokens_fn = restrict_decode_vocab
+    global_num_labels = utils.get_num_labels(dataset_name)
+    global_num_annots = utils.get_num_annots(dataset_name)
+    model = Model(model_id, num_labels=global_num_labels, num_annots=global_num_annots)   
     tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, model.tokenizer, col_for_num_labels, remove_columns=remove_columns, mode=dataset_mode)
-
     if 'intra' in filename: 
         repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra_model"
     else:
@@ -419,15 +425,15 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]
             elif s1 == '':
                 losses.append(10.0)
                 continue
-            elif not s1.replace(" ", "").isdigit():
+            elif not s1.isdigit():
                 losses.append(nltk.edit_distance(s1, s2)/max_distance)
                 print(losses[-1])
                 raise Exception('STOP')
                 continue
             # Calculate length penalty
             length_penalty = abs(len(s1) - len(s2))
-            s1_digits = [int(s) for s in s1.split() if s.isdigit()]
-            s2_digits = [int(s) for s in s2.split() if s.isdigit()]
+            s1_digits = [int(s) for s in s1 if s.isdigit()]
+            s2_digits = [int(s) for s in s2 if s.isdigit()]
             # character penalty: check number of numbers
             if s1_digits == s2_digits:
                 character_penalty = 0
