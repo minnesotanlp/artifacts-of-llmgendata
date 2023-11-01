@@ -43,19 +43,23 @@ BATCH_SIZE = utils.get_batch_size()
 LR = 1e-4
 from typing import List, Optional, Tuple, Union
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
+global_num_labels = 0
+global_num_annots = 0
 
 def calc_num_outcomes(num_labels):
     # all possible combinations (ignore order) of num_labels)
     return math.factorial(5)/(math.factorial(5-num_labels)*math.factorial(num_labels))
 
+
 class CustomT5Model(T5ForConditionalGeneration):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        global global_num_labels, global_num_annots
         config = args[0]
-        print("KWARGS", kwargs)
-        if 'num_labels' in kwargs:
-            self.lm_head = torch.nn.Linear(config.d_model, kwargs.pop('num_labels'), bias=False)
-            self.allowed_token_ids = torch.tensor([209, 204, 220, 314, 305]).cuda()
+        # ahh so hacky
+        self.tokenizer = T5Tokenizer.from_pretrained(config._name_or_path)
+        self.lm_head = torch.nn.Linear(config.d_model, global_num_labels, bias=False)
+        self.allowed_token_ids = torch.tensor([209, 204, 220, 314, 305]).cuda()
     
     def forward(
         self, 
@@ -154,20 +158,37 @@ class CustomT5Model(T5ForConditionalGeneration):
             sequence_output = sequence_output * (self.model_dim**-0.5)
 
         lm_logits = self.lm_head(sequence_output)
-        print("LM_LOGITS", lm_logits)
-        print("LM_LOGITS SHAPE", lm_logits.shape)
-        raise Exception("STOP")
-
-        mask = torch.ones_like(lm_logits) * -1e9 
-        mask[:,:,self.allowed_token_ids] = 0
-        lm_logits = lm_logits + mask
-
+        #print("LM_LOGITS", lm_logits)
+        #print("LM_LOGITS SHAPE", lm_logits.shape)
+        #print("LABELS", labels)
+        #print("TYPE LABELS", type(labels))
+        #preds = np.where(preds != -100, preds, model.tokenizer.pad_token_id)
+        labels[labels == -100] = self.tokenizer.pad_token_id 
+        #labels = np.where(labels != -100, labels, self.tokenizer.pad_token_id)
+        #print("REPLACED LABELS", labels)
+        self.allowed_token_ids = torch.tensor([209, 204, 220, 314, 305]).cuda()
+        #print("========BATCH DECODE==============")
+        #print(self.tokenizer.batch_decode(labels, return_tensors="pt", skip_special_tokens=True))
+        # indices are the same as labels now
+        temp = self.tokenizer.batch_decode(labels, return_tensors="pt", skip_special_tokens=True)
+        #temp2 = self.tokenizer.batch_decode(lm_logits.argmax(-1), return_tensors="pt", skip_special_tokens=True)
+        temp = [t.split() for t in temp]
+        # Ignore short labels for now (ones less than num_annots)
+        labels = []
+        for i in range(len(temp)):
+            labels.append([int(t) for t in temp[i]])
+            if len(labels[-1]) < global_num_annots:
+                # pad this array
+                labels[-1] = labels[-1] + [self.tokenizer.pad_token_id]*(global_num_annots-len(labels[-1]))
+        labels = torch.tensor(labels).cuda()
+        
         loss = None
-        if labels is not None:
-            loss_fct = CrossEntropyLoss(ignore_index=-100)
-            # move labels to correct device to enable PP
-            labels = labels.to(lm_logits.device)
-            loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
+        loss_fct = CrossEntropyLoss()#ignore_index=-100)
+        print("SHAPES", lm_logits.shape, labels.shape)
+        #print("lm_logits.view(-1, lm_logits.size(-1))", lm_logits.view(-1, lm_logits.size(-1)))
+        #print("labels.view(-1)", labels.view(-1))
+        #loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
+        loss = loss_fct(lm_logits, labels)
         if not return_dict:
             output = (lm_logits,) + decoder_outputs[1:] + encoder_outputs
             return ((loss,) + output) if loss is not None else output
@@ -183,39 +204,6 @@ class CustomT5Model(T5ForConditionalGeneration):
             encoder_hidden_states=encoder_outputs.hidden_states,
             encoder_attentions=encoder_outputs.attentions,
         )
-
-    '''
-        super().forward(*args, **kwargs)
-
-        return super().forward(*args, **kwargs)
-        print("DO I GET HEREEEEEEi22222222222")
-        outputs = super().forward(*args, **kwargs)
-        logits = outputs.logits
-        print("BEFOREEEE mask", mask.shape)
-        #print(mask[:, :, self.allowed_token_ids])
-        #mask[:, :, self.allowed_token_ids] = 0
-        print("AFTERRRRR  mask", mask.shape)
-        #print(mask[:, :, self.allowed_token_ids])
-        #logits = logits + mask
-        return torch.nn.functional.log_softmax(logits, dim=-1)
-    '''
-class MyT5DecoderModule(torch.nn.Module):
-    def __init__(self, base_model):
-        super().__init__()
-        self.base_model = base_model
-        self.allowed_token_ids = torch.tensor([209, 204, 220, 314, 305])
-
-    def forward(self, *args, **kwargs):
-        original_logits = self.base_model(*args, **kwargs).logits
-        mask = torch.ones_like(original_logits) * -1e9 
-        print("BEFOREEEE mask", mask.shape)
-        mask[:,:,self.allowed_token_ids] = 0
-        print("AFTERRRRR  mask", mask.shape)
-        return original_logits + mask
-
-
-def debug_dc():
-    return DataCollatorWithPadding(tokenizer=self.tokenizer)#, pad_to_multiple_of=8)
 
 class Model:
     def __init__(self, model_name, num_labels=0, num_annots=0):
@@ -235,7 +223,10 @@ class Model:
                 #task_type=TaskType.SEQ_2_SEQ_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1
             )
             #self.model = T5ForConditionalGeneration.from_pretrained(model_name)
-            self.model = CustomT5Model.from_pretrained(model_name)
+            self.model = CustomT5Model.from_pretrained(
+                pretrained_model_name_or_path=model_name,
+                ignore_mismatched_sizes=True
+            )
             #self.model = T5ForConditionalGeneration(MyT5DecoderModule(base_model))
             self.model = get_peft_model(self.model, peft_config)
             self.model.print_trainable_parameters()
@@ -368,6 +359,7 @@ def max_edit_distance(target, output):
     return max_distance
 
 def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[], dataset_mode='sorted'):
+    global global_num_labels, global_num_annots
     #model = Model("google/t5-v1_1-base")
     #model = Model("google/flan-t5-small")
     if dataset_name in ['SChem5Labels', 'Sentiment']:
@@ -384,7 +376,9 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]
         num_annots = 4
     elif dataset_name in ['SBIC', 'ghc']:
         num_annots = 3
-    model = Model(model_id, num_labels=num_labels, num_annots=num_annots)
+    global_num_labels = num_labels
+    global_num_annots = num_annots
+    model = Model(model_id, num_labels=num_labels, num_annots=num_annots)   
     model.model.generation_config.max_new_tokens = num_annots
     model.model.generation_config.min_new_tokens = num_annots
     model.model.generation_config.num_beams = 1

@@ -41,6 +41,21 @@ def format_dataset(filename, dataset_name, mode="sorted"):
             #print(">>>", type(df[col][0]), df[col][0])
             df[f'{col}_str'] = df[col].apply(lambda x: " ".join([str(i) for i in x]))
             ##" ".join([str(i) for i in x]))
+    elif "dataset-frequency" in mode:# [frequency, reverse_frequency]
+        for col in ['human_annots', 'model_annots']:
+            for i in range(df[col].shape[0]):
+                this_str = df[col][i][1:-1].replace(" ", "").replace("nan", "").replace(".", "")
+            
+            # get the whole frequency here?
+            # iterate through again and reorder
+            for i in range(df[col].shape[0]):
+                # adding 1 of each label so it shows up in final string - won't mess up frequency order
+                #this_str += ''.join([str(num) for num in range(get_num_labels(dataset_name))])
+                freq_dict = dict(Counter([row for row in this_str]))
+                freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
+                new_str = ''.join([str(k)*freq_dict[k] for k in freq_dict.keys()])
+                df[col][i] = list(new_str)
+            df[f'{col}_str'] = df[col].apply(lambda x: (' '.join(list(x))))
     elif "frequency" in mode:# [frequency, reverse_frequency]
         for col in ['human_annots', 'model_annots']:
             for i in range(df[col].shape[0]):
@@ -68,7 +83,7 @@ def format_dataset(filename, dataset_name, mode="sorted"):
 
 def split(df, suffix=''):
     # count rows in each df
-    testing = True 
+    testing = False 
     if testing:
         train_data = df.sample(frac=0.01, random_state=RANDOM_SEED*3)
         val_data = train_data
@@ -83,9 +98,9 @@ def split(df, suffix=''):
     val_data.reset_index(drop=True, inplace=True)
     test_data.reset_index(drop=True, inplace=True)
 
-    train_data.to_pickle(f"train_data{suffix}.pkl")
-    val_data.to_pickle(f"val_data{suffix}.pkl")
-    test_data.to_pickle(f"test_data{suffix}.pkl")
+    train_data.to_pickle(f"train_data_{suffix}.pkl")
+    val_data.to_pickle(f"val_data_{suffix}.pkl")
+    test_data.to_pickle(f"test_data_{suffix}.pkl")
     return DatasetDict({
         "train": Dataset.from_pandas(train_data),
         "val": Dataset.from_pandas(val_data),
@@ -95,7 +110,7 @@ def split(df, suffix=''):
 def get_data(filename, dataset_name, mode="sorted"):
     # returns DatasetDict with train, val, test
     model_df = format_dataset(filename, dataset_name, mode)
-    dataset = split(model_df) 
+    dataset = split(model_df, dataset_name)
     #print(f"Train dataset size: {len(intra_dataset['train'])}")
     #print(f"Test dataset size: {len(inter_dataset['test'])}")
     return dataset
@@ -148,6 +163,11 @@ def compute_metrics(eval_preds, tokenizer, label_pad_token_id=-100):
     preds, labels = eval_preds
     if isinstance(preds, tuple):
         preds = preds[0]
+    print("PREVIOUS PREDS")
+    print(preds)
+    preds = np.where(preds != -100, preds, tokenizer.pad_token_id)
+    print("THIS SHOULD GET RID OF -100??")
+    print(preds)
     decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
     # Replace -100 in the labels as we can't decode them.
     labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
