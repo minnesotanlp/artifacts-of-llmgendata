@@ -3,7 +3,6 @@ import numpy as np
 import torch
 loss_fct = torch.nn.CrossEntropyLoss()
 from transformers import T5Tokenizer, T5ForConditionalGeneration
-
 class CustomSeq2SeqTrainer(Seq2SeqTrainer):
 
     def compute_loss(self, model, inputs, return_outputs=False):

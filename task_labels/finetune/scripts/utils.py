@@ -8,7 +8,7 @@ accelerator = Accelerator()
 import nltk 
 import random
 from collections import Counter
-BATCH_SIZE = 8
+BATCH_SIZE = 64
 RANDOM_SEED = 42
 
 def get_batch_size():
@@ -46,6 +46,7 @@ def format_dataset(filename, dataset_name, mode="sorted"):
     np.random.seed(RANDOM_SEED)
     df = pd.read_csv(filename)
     df = df[df['dataset_name'] == dataset_name]
+    df.reset_index(inplace=True)
     # since nans are already removed here (still checking below just in case), we may have lists that are shorter than expected
     if mode == "sorted":
         for col in ['human_annots', 'model_annots']:
@@ -131,8 +132,8 @@ def get_dataloader(filename):
     dataloader = DataLoader(data, batch_size=BATCH_SIZE, shuffle=False, worker_init_fn = seed_init_fn)
     return dataloader
 
-def get_tokenized_data(filename, dataset, tokenizer, col_for_num_labels, remove_columns, mode="sorted"):
-    def preprocess_function(sample, target="model_annots_str"):
+def get_tokenized_data(filename, dataset, tokenizer, col_for_num_labels, remove_columns, mode="sorted", target_col="model_annots_str"):
+    def preprocess_function(sample, target=target_col):
     #def preprocess_function(sample, padding="max_length", target="model_annots_str", max_target_length=32):
         # target is just labels so we can hardcode it as 32
         # add prefix to the input for t5
