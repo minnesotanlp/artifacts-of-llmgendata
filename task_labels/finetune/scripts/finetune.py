@@ -46,10 +46,6 @@ from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 global_num_labels = 0
 global_num_annots = 0
 
-def calc_num_outcomes(num_labels):
-    # all possible combinations (ignore order) of num_labels)
-    return math.factorial(5)/(math.factorial(5-num_labels)*math.factorial(num_labels))
-
 def restrict_decode_vocab(a, b):
     return [209, 204, 220, 314, 305]
 
@@ -58,11 +54,7 @@ class Model:
         self.model_name = model_name
         self.num_labels = num_labels
         self.num_annots = num_annots
-        if "roberta" in model_name:
-            from transformers import RobertaTokenizerFast, RobertaForSequenceClassification
-            self.tokenizer = RobertaTokenizerFast.from_pretrained(model_name)
-            self.model = RobertaForSequenceClassification.from_pretrained(model_name, num_labels=calc_num_outcomes(num_labels))
-        elif "t5" in model_name:
+        if "t5" in model_name:
             from transformers import DataCollatorForSeq2Seq, AutoModelForSeq2SeqLM, AutoTokenizer
             from transformers import T5Tokenizer, T5ForConditionalGeneration, GenerationConfig
             import transformers
@@ -71,31 +63,19 @@ class Model:
             my_config['max_new_tokens'] = global_num_annots + 1
             my_config['min_new_tokens'] = global_num_annots + 1
             #my_config["prefix_allowed_tokens_fn"] = restrict_decode_vocab #not json serializable
-            #my_config['max_length'] = 300
             my_config['renormalize_logits'] = True
             my_config['return_dict_in_generate'] = True
             my_config['bos_token_id'] = 0
-            #my_config['num_beams'] = 1
-            #my_config['do_sample'] = False
             self.tokenizer = T5Tokenizer.from_pretrained(model_name)
             peft_config = LoraConfig(
-                task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1
-                #task_type=TaskType.SEQ_2_SEQ_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1
+                #task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1
+                task_type=TaskType.SEQ_2_SEQ_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1
             )
             self.model = T5ForConditionalGeneration.from_pretrained(model_name)
-            #self.model = CustomT5Model.from_pretrained(
-            #    pretrained_model_name_or_path=model_name,
-            #    ignore_mismatched_sizes=True
-            #)
             self.model.generation_config = GenerationConfig.from_dict(my_config)
-            #self.model = T5ForConditionalGeneration(MyT5DecoderModule(base_model))
             self.model = get_peft_model(self.model, peft_config)
             self.model.print_trainable_parameters()
             self.model.to(accelerator.device)
-        #elif "t5" in model_name:
-        #    from transformers import T5ForConditionalGeneration, AutoTokenizer
-        #    self.tokenizer = AutoTokenizer.from_pretrained(tokenizer)
-        #    self.model = T5ForConditionalGeneration.from_pretrained(model_name)
         else:
             raise ValueError("Model model_name not supported")
         self.num_labels = num_labels
@@ -127,10 +107,6 @@ class Model:
             #training_args = Seq2SeqTrainingArguments
             trainer = CustomSeq2SeqTrainer
             training_args = Seq2SeqTrainingArguments
-        print(accelerator.num_processes)
-        #generation_config = GenerationConfig.from_pretrained(self.model_name)
-        #generation_config.max_new_tokens = num_annots
-        #generation_config.min_new_tokens = num_annots
         # Define training args
         self.training_args = training_args(
             output_dir=repository_id,
@@ -179,18 +155,8 @@ class Model:
                 pad_to_multiple_of=num_annots
             )
         early_stopping = EarlyStoppingCallback(early_stopping_patience=5)
-        '''
-        "return_dict_in_generate": True,
-            "num_beams": 1, # MESS WITH THIS LATERRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR
-            #"constraints": [
-            #    DisjunctiveConstraint([[209, 204, 220, 314, 305]]),
-            #],
-            "max_new_tokens": 5,
-            "min_new_tokens": 5,
-            "output_scores": True,
-            #"temperature": 1.0,
-            "do_sample": False,
-        '''
+        #"constraints": [
+        #    DisjunctiveConstraint([[209, 204, 220, 314, 305]]),
         self.trainer = trainer(
             model=self.model,
             tokenizer=self.tokenizer,
@@ -219,8 +185,6 @@ def max_edit_distance(target, output):
 
 def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[], dataset_mode='sorted'):
     global global_num_labels, global_num_annots
-    #model = Model("google/t5-v1_1-base")
-    #model = Model("google/flan-t5-small")
     global_num_labels = utils.get_num_labels(dataset_name)
     global_num_annots = utils.get_num_annots(dataset_name)
     model = Model(model_id, num_labels=global_num_labels, num_annots=global_num_annots)   
@@ -299,31 +263,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]
             )
             #losses.append(total_loss)
             losses.append(min(total_loss, 1))
-            '''
-            if len(s2.split()) < num_labels:
-                continue
-            #if s1 contains characters other than digits and spaces, use edit distance
-            elif s1 == '':
-                losses.append(1.0)
-                continue
-            elif not s1.replace(" ", "").isdigit():
-                losses.append((len(s2)+nltk.edit_distance(s1, s2))/max(losses))
-                continue
-
-            #if s1 contains only digits and spaces, use wasserstein distance 
-            s1_digits = [int(s) for s in s1.split() if s.isdigit()]
-            s2_digits = [int(s) for s in s2.split() if s.isdigit()]
-            dist = scipy.stats.wasserstein_distance(s1_digits, s2_digits)
-            #diff = sum(abs(s) for s in s1_digits) - sum(abs(s) for s in s2_digits)
-            #overlap = set(s1_digits).intersection(set(s2_digits))
-            #losses.append(-nltk.edit_distance(s1, s2)/10 - diff + len(overlap))
-            losses.append((dist+nltk.edit_distance(s1, s2))/max(losses))
-            '''
-
-        # Some simple post-processing
-        #######################BEFORE AND AFTER ARE THE SAME #########################
         return {'losses': losses, 'train_loss': np.mean(losses), 'eval_train_loss': np.mean(losses)}
-        #model.compute_metrics(eval_preds, label_pad_token_id=-100)
 
     model.set_tokenized_dataset(tokenized_dataset)
     model.set_training_var(repository_id, compute_metrics)
