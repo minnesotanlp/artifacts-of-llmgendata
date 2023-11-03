@@ -145,9 +145,8 @@ def get_tokenized_data(filename, dataset, tokenizer, col_for_num_labels, remove_
             inputs.append(prompt)
         tokenized = tokenizer(inputs, truncation=True)
         max_source_length = max([len(x) for x in tokenized["input_ids"]])
-        model_inputs = tokenizer(inputs, truncation=True, padding=True)
-        labels = tokenizer(sample[target], truncation=True, padding=True, add_special_tokens=False)
-
+        model_inputs = tokenizer(inputs, truncation=True)#, padding=True)
+        labels = tokenizer(sample[target], truncation=True, add_special_tokens=False)
         # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
         # padding in the loss.
         #if padding == "max_length":
@@ -167,14 +166,11 @@ def get_tokenized_data(filename, dataset, tokenizer, col_for_num_labels, remove_
             num_proc=accelerator.num_processes, remove_columns=remove_columns)
     return tokenized_data
 
-def compute_metrics(eval_preds, tokenizer, label_pad_token_id=-100):
+def compute_metrics(eval_preds, tokenizer):
     preds, labels = eval_preds
     if isinstance(preds, tuple):
         preds = preds[0]
-    preds = np.where(preds != -100, preds, tokenizer.pad_token_id)
     decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
-    # Replace -100 in the labels as we can't decode them.
-    labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
     decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
 
     edit_distances = []
