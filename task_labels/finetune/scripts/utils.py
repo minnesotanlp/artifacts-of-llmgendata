@@ -11,7 +11,7 @@ from collections import Counter
 BATCH_SIZE = -1
 RANDOM_SEED = 42
 
-def get_batch_size():
+def get_batch_size(dataset_name):
     if dataset_name in ['SChem5Labels', 'Sentiment']:
         BATCH_SIZE = 64
     elif dataset_name in ['SBIC', 'ghc']:
