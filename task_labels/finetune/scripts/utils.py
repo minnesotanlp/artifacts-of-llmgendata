@@ -8,7 +8,7 @@ accelerator = Accelerator()
 import nltk 
 import random
 from collections import Counter
-BATCH_SIZE = 32
+BATCH_SIZE = 8
 RANDOM_SEED = 42
 
 def get_batch_size():
@@ -50,7 +50,7 @@ def format_dataset(filename, dataset_name, mode="sorted"):
     if mode == "sorted":
         for col in ['human_annots', 'model_annots']:
             df[col] = df[col].apply(lambda x: sorted([i if i != 'nan' else -1 for i in np.fromstring(x[1:-1].replace('.',''), dtype=int, sep=' ')]))
-            df[f'{col}_str'] = df[col].apply(lambda x: "".join([str(i) for i in x]))
+            df[f'{col}_str'] = df[col].apply(lambda x: " ".join([str(i) for i in x]))
     elif "dataset-frequency" in mode:# [frequency, reverse_frequency]
         for col in ['human_annots', 'model_annots']:
             for i in range(df[col].shape[0]):
@@ -63,7 +63,7 @@ def format_dataset(filename, dataset_name, mode="sorted"):
                 #this_str += ''.join([str(num) for num in range(get_num_labels(dataset_name))])
                 freq_dict = dict(Counter([row for row in this_str]))
                 freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
-                new_str = ''.join([str(k)*freq_dict[k] for k in freq_dict.keys()])
+                new_str = ' '.join([str(k)*freq_dict[k] for k in freq_dict.keys()])
                 df[col][i] = list(new_str)
             df[f'{col}_str'] = df[col].apply(lambda x: (' '.join(list(x))))
     elif "frequency" in mode:# [frequency, reverse_frequency]
@@ -76,7 +76,7 @@ def format_dataset(filename, dataset_name, mode="sorted"):
                 freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
                 new_str = ''.join([str(k)*freq_dict[k] for k in freq_dict.keys()])
                 df[col][i] = list(new_str)
-            df[f'{col}_str'] = df[col].apply(lambda x: (''.join(list(x))))
+            df[f'{col}_str'] = df[col].apply(lambda x: (' '.join(list(x))))
     elif mode == "shuffle":
         for col in ['human_annots', 'model_annots']:
             for i in range(df[col].shape[0]):
@@ -84,9 +84,9 @@ def format_dataset(filename, dataset_name, mode="sorted"):
                 x = [el if el != 'nan' else -1 for el in x]
                 random.shuffle(x)
                 df[col][i] = [str(el) for el in x]
-            df[f'{col}_str'] = df[col].apply(lambda x: (''.join(list(x))))
+            df[f'{col}_str'] = df[col].apply(lambda x: (' '.join(list(x))))
     # remove last sentence fragment for multi-label tasks
-    df['short_prompt'] = df['prompt'].apply(lambda x: x[(x.index("Sentence: ")):].replace("Among the given options, I think the most appropriate option is (",""))
+    #df['short_prompt'] = df['prompt'].apply(lambda x: x[(x.index("Sentence: ")):].replace("Among the given options, I think the most appropriate option is (",""))
             #.replace("Sentence: ", "##### Sentence #####\n")\
             #.replace("Label options: ", "\n##### Labels options #####\n"))
     return df
@@ -141,12 +141,12 @@ def get_tokenized_data(filename, dataset, tokenizer, col_for_num_labels, remove_
             #prompt = f"##### Predict a set of annotations from {len(sample[col_for_num_labels][i])} different people #####\n" 
             #prompt += sample['short_prompt'][i]
             #prompt += "Answer: The set of annotations from {len(sample[col_for_num_labels][i])} different people is ["
-            prompt = 'Five multi-label classification results: '+sample['text'][i]
+            prompt = 'Multi-label classification results: '+sample['text'][i]
             inputs.append(prompt)
         tokenized = tokenizer(inputs, truncation=True)
         max_source_length = max([len(x) for x in tokenized["input_ids"]])
         model_inputs = tokenizer(inputs, truncation=True, padding=True)
-        labels = tokenizer(sample[target], truncation=True, padding=True)
+        labels = tokenizer(sample[target], truncation=True, padding=True, add_special_tokens=False)
 
         # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
         # padding in the loss.
@@ -171,11 +171,7 @@ def compute_metrics(eval_preds, tokenizer, label_pad_token_id=-100):
     preds, labels = eval_preds
     if isinstance(preds, tuple):
         preds = preds[0]
-    print("PREVIOUS PREDS")
-    print(preds)
     preds = np.where(preds != -100, preds, tokenizer.pad_token_id)
-    print("THIS SHOULD GET RID OF -100??")
-    print(preds)
     decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
     # Replace -100 in the labels as we can't decode them.
     labels = np.where(labels != -100, labels, tokenizer.pad_token_id)

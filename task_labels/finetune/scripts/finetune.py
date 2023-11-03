@@ -35,7 +35,7 @@ import utils
 #DATA [['model_name', 'dataset_name', 'text_ind', 'text', 'prompt', 'params', 'human_agg', 'model_annots'],
 # intramodel [['dataset_name', 'text_ind', 'text', 'prompt', 'params', 'human_annots', 'model_annots']
 # intermodel************ DATA [['model_name', 'dataset_name', 'text_ind', 'text', 'prompt', 'human_annots', 'model_annots']
-from custom_trainer import CustomTrainer, CustomSeq2SeqTrainer
+from custom_trainer import CustomSeq2SeqTrainer
 # we want to ignore tokenizer pad token in the loss
 label_pad_token_id = -100
 # Data collator
@@ -50,181 +50,8 @@ def calc_num_outcomes(num_labels):
     # all possible combinations (ignore order) of num_labels)
     return math.factorial(5)/(math.factorial(5-num_labels)*math.factorial(num_labels))
 
-
-class CustomT5Model(T5ForConditionalGeneration):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        global global_num_labels, global_num_annots
-        config = args[0]
-        # ahh so hacky
-        self.tokenizer = T5Tokenizer.from_pretrained(config._name_or_path)
-        self.lm_head = torch.nn.Linear(config.d_model, global_num_labels, bias=False)
-    
-    def forward(
-        self, 
-        input_ids: Optional[torch.LongTensor] = None,
-        attention_mask: Optional[torch.FloatTensor] = None,
-        decoder_input_ids: Optional[torch.LongTensor] = None,
-        decoder_attention_mask: Optional[torch.BoolTensor] = None,
-        head_mask: Optional[torch.FloatTensor] = None,
-        decoder_head_mask: Optional[torch.FloatTensor] = None,
-        cross_attn_head_mask: Optional[torch.Tensor] = None,
-        encoder_outputs: Optional[Tuple[Tuple[torch.Tensor]]] = None,
-        past_key_values: Optional[Tuple[Tuple[torch.Tensor]]] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        decoder_inputs_embeds: Optional[torch.FloatTensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ):
-        print('.....................', labels.shape)
-        ##outputs = super().forward(input_ids, attention_mask, decoder_input_ids, decoder_attention_mask, head_mask, decoder_head_mask, cross_attn_head_mask, encoder_outputs, past_key_values, inputs_embeds, decoder_inputs_embeds, labels, use_cache, output_attentions, output_hidden_states, return_dict)
-        use_cache = use_cache if use_cache is not None else self.config.use_cache
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-
-        # FutureWarning: head_mask was separated into two input args - head_mask, decoder_head_mask
-        if head_mask is not None and decoder_head_mask is None:
-            if self.config.num_layers == self.config.num_decoder_layers:
-                warnings.warn(__HEAD_MASK_WARNING_MSG, FutureWarning)
-                decoder_head_mask = head_mask
-
-        # Encode if needed (training, first prediction pass)
-        if encoder_outputs is None:
-            # Convert encoder inputs in embeddings if needed
-            encoder_outputs = self.encoder(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                inputs_embeds=inputs_embeds,
-                head_mask=head_mask,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-                return_dict=return_dict,
-            )
-        elif return_dict and not isinstance(encoder_outputs, transformers.modeling_outputs.BaseModelOutput):
-            encoder_outputs = transformers.modeling_outputs.BaseModelOutput(
-                last_hidden_state=encoder_outputs[0],
-                hidden_states=encoder_outputs[1] if len(encoder_outputs) > 1 else None,
-                attentions=encoder_outputs[2] if len(encoder_outputs) > 2 else None,
-            )
-
-        hidden_states = encoder_outputs[0]
-
-        if self.model_parallel:
-            torch.cuda.set_device(self.decoder.first_device)
-
-        if labels is not None and decoder_input_ids is None and decoder_inputs_embeds is None:
-            # get decoder inputs from shifting lm labels to the right
-            decoder_input_ids = self._shift_right(labels)
-
-        # Set device for model parallelism
-        if self.model_parallel:
-            torch.cuda.set_device(self.decoder.first_device)
-            hidden_states = hidden_states.to(self.decoder.first_device)
-            if decoder_input_ids is not None:
-                decoder_input_ids = decoder_input_ids.to(self.decoder.first_device)
-            if attention_mask is not None:
-                attention_mask = attention_mask.to(self.decoder.first_device)
-            if decoder_attention_mask is not None:
-                decoder_attention_mask = decoder_attention_mask.to(self.decoder.first_device)
-
-        decoder_outputs = self.decoder(
-            input_ids=decoder_input_ids,
-            attention_mask=decoder_attention_mask,
-            inputs_embeds=decoder_inputs_embeds,
-            past_key_values=past_key_values,
-            encoder_hidden_states=hidden_states,
-            encoder_attention_mask=attention_mask,
-            head_mask=decoder_head_mask,
-            cross_attn_head_mask=cross_attn_head_mask,
-            use_cache=use_cache,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-        )
-
-        sequence_output = decoder_outputs[0]
-
-        # Set device for model parallelism
-        if self.model_parallel:
-            torch.cuda.set_device(self.encoder.first_device)
-            self.lm_head = self.lm_head.to(self.encoder.first_device)
-            sequence_output = sequence_output.to(self.lm_head.weight.device)
-
-        if self.config.tie_word_embeddings:
-            # Rescale output before projecting on vocab
-            # See https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/transformer/transformer.py#L586
-            sequence_output = sequence_output * (self.model_dim**-0.5)
-
-        lm_logits = self.lm_head(sequence_output)
-        past = lm_logits
-        lm_logits = torch.moveaxis(lm_logits, 2, 1)
-        #preds = np.where(preds != -100, preds, model.tokenizer.pad_token_id)
-        try:
-            labels[labels == -100] = self.tokenizer.pad_token_id 
-        except:
-            print(labels.shape)
-            print(labels[label == -100])
-            raise Exception("STOP")
-        #labels = np.where(labels != -100, labels, self.tokenizer.pad_token_id)
-        #print("REPLACED LABELS", labels)
-        #print("========BATCH DECODE==============")
-        #print(self.tokenizer.batch_decode(labels, return_tensors="pt", skip_special_tokens=True))
-        # indices are the same as labels now
-        temp = self.tokenizer.batch_decode(labels, return_tensors="pt", skip_special_tokens=True)
-        #temp2 = self.tokenizer.batch_decode(lm_logits.argmax(-1), return_tensors="pt", skip_special_tokens=True)
-        temp = [t for t in temp]
-        # Ignore short labels for now (ones less than num_annots)
-        labels = []
-        for i in range(len(temp)):
-            labels.append([(int(t) if int(t) < global_num_labels else global_num_labels-1) for t in temp[i]])
-            if len(labels[-1]) < global_num_annots:
-                # pad this array
-                #labels[-1] = labels[-1] + [self.tokenizer.pad_token_id]*(global_num_annots-len(labels[-1]))
-                labels[-1] = labels[-1] + [global_num_labels-1]*(global_num_annots-len(labels[-1]))
-        labels = torch.tensor(labels).cuda()
-        
-        loss = None
-        loss_fct = CrossEntropyLoss()#ignore_index=-100)
-        #loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
-        debugging = False
-        if not debugging:
-            loss = loss_fct(lm_logits, labels)
-        else:
-            try:
-                loss = loss_fct(lm_logits, labels)
-            except Exception as e:
-                loss = 1#loss_fct(torch.zeros_like(), labels)
-                print(e)
-                print("type", type(self.decoder))
-                print("decoder_input_ids", decoder_input_ids)
-                print(self.generation_config)
-                print(self.lm_head)
-                print("LM_LOGITS", lm_logits)
-                print("LM_LOGITS SHAPE", lm_logits.shape)
-                print("PAST SHAPE", past.shape)
-                print("LABELS", labels)
-                print("TYPE LABELS", type(labels))
-                print("SHAPES", lm_logits.shape, labels.shape)
-                print("DECODER OUTPUTS", decoder_outputs['last_hidden_state'])
-                print("DECODER OUTPUTS", decoder_outputs['last_hidden_state'].shape)
-
-        if not return_dict:
-            output = (lm_logits,) + decoder_outputs[1:] + encoder_outputs
-            return ((loss,) + output) if loss is not None else output
-
-        return transformers.modeling_outputs.Seq2SeqLMOutput(
-            loss=loss,
-            logits=lm_logits,
-            past_key_values=decoder_outputs.past_key_values,
-            decoder_hidden_states=decoder_outputs.hidden_states,
-            decoder_attentions=decoder_outputs.attentions,
-            cross_attentions=decoder_outputs.cross_attentions,
-            encoder_last_hidden_state=encoder_outputs.last_hidden_state,
-            encoder_hidden_states=encoder_outputs.hidden_states,
-            encoder_attentions=encoder_outputs.attentions,
-        )
+def restrict_decode_vocab(a, b):
+    return [209, 204, 220, 314, 305]
 
 class Model:
     def __init__(self, model_name, num_labels=0, num_annots=0):
@@ -241,12 +68,13 @@ class Model:
             import transformers
             print(transformers.__file__)
             my_config = {}
-            print("NUM ANNOTS", global_num_annots)
-            my_config['max_new_tokens'] = global_num_annots
-            my_config['min_new_tokens'] = global_num_annots
+            my_config['max_new_tokens'] = global_num_annots + 1
+            my_config['min_new_tokens'] = global_num_annots + 1
+            #my_config["prefix_allowed_tokens_fn"] = restrict_decode_vocab #not json serializable
             #my_config['max_length'] = 300
             my_config['renormalize_logits'] = True
-            #my_config['return_dict_in_generate'] = True
+            my_config['return_dict_in_generate'] = True
+            my_config['bos_token_id'] = 0
             #my_config['num_beams'] = 1
             #my_config['do_sample'] = False
             self.tokenizer = T5Tokenizer.from_pretrained(model_name)
@@ -254,12 +82,12 @@ class Model:
                 task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1
                 #task_type=TaskType.SEQ_2_SEQ_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1
             )
-            #self.model = T5ForConditionalGeneration.from_pretrained(model_name)
-            self.model = CustomT5Model.from_pretrained(
-                pretrained_model_name_or_path=model_name,
-                ignore_mismatched_sizes=True
-            )
-            #self.model.generation_config = GenerationConfig.from_dict(my_config)
+            self.model = T5ForConditionalGeneration.from_pretrained(model_name)
+            #self.model = CustomT5Model.from_pretrained(
+            #    pretrained_model_name_or_path=model_name,
+            #    ignore_mismatched_sizes=True
+            #)
+            self.model.generation_config = GenerationConfig.from_dict(my_config)
             #self.model = T5ForConditionalGeneration(MyT5DecoderModule(base_model))
             self.model = get_peft_model(self.model, peft_config)
             self.model.print_trainable_parameters()
@@ -295,10 +123,10 @@ class Model:
             training_args = TrainingArguments
         elif "t5" in self.model_name:
             from transformers import Seq2SeqTrainer, Seq2SeqTrainingArguments
-            trainer = Seq2SeqTrainer
-            training_args = Seq2SeqTrainingArguments
-            #trainer = CustomSeq2SeqTrainer
+            #trainer = Seq2SeqTrainer
             #training_args = Seq2SeqTrainingArguments
+            trainer = CustomSeq2SeqTrainer
+            training_args = Seq2SeqTrainingArguments
         print(accelerator.num_processes)
         #generation_config = GenerationConfig.from_pretrained(self.model_name)
         #generation_config.max_new_tokens = num_annots
@@ -332,6 +160,7 @@ class Model:
             hub_token=HfFolder.get_token(),
             #generation_config=generation_config,
         )
+        self.training_args._n_gpu = 2
         # Create Trainer instance
         if not is_roberta:
             data_collator = DataCollatorForSeq2Seq(
@@ -371,12 +200,9 @@ class Model:
             callbacks=[early_stopping],
             train_dataset=self.tokenized_dataset["train"],
             eval_dataset=self.tokenized_dataset["val"],
-            compute_metrics=compute_metrics,
+            #compute_metrics=compute_metrics,
         )
         
-def restrict_decode_vocab(a, b):
-    return [209, 204, 220, 314, 305]
-
 def max_edit_distance(target, output):
     # Step 1: Find the maximum length difference
     length_difference = abs(len(target) - len(output))
@@ -496,7 +322,6 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]
 
         # Some simple post-processing
         #######################BEFORE AND AFTER ARE THE SAME #########################
-        print("losses", losses, "mean", np.mean(losses))
         return {'losses': losses, 'train_loss': np.mean(losses), 'eval_train_loss': np.mean(losses)}
         #model.compute_metrics(eval_preds, label_pad_token_id=-100)
 
@@ -505,6 +330,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]
     model.trainer.train()
     model.trainer.evaluate(
         eval_dataset=tokenized_dataset["test"],
+        #metric_key_prefix=""
     )
     model.model.save_pretrained(repository_id) 
     model.tokenizer.save_pretrained(repository_id)
@@ -532,6 +358,12 @@ main(filename = '../data/intramodel_data.csv',
      dataset_name = "SChem5Labels",
      remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'],
      col_for_num_labels = "model_annots",
+     dataset_mode = 'sorted')
+main(filename = '../data/intermodel_data.csv', 
+     model_id = "google/t5-v1_1-large",#"roberta-base",
+     dataset_name = "SChem5Labels",
+     remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'model_annots'],
+     col_for_num_labels = "human_annots",
      dataset_mode = 'sorted')
 '''
 main(filename = '../data/intramodel_data.csv', 
