@@ -299,7 +299,7 @@ main(filename = '../data/intramodel_data.csv',
 '''
 main(filename = '../data/intermodel_data.csv', 
      model_id = "google/t5-v1_1-large",#"roberta-base",
-     dataset_name = "SChem5Labels",
+     dataset_name = "ghc",
      remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
      col_for_num_labels = "human_annots",
      dataset_mode = 'sorted',
