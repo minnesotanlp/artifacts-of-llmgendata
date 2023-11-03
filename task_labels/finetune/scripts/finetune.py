@@ -183,16 +183,16 @@ def max_edit_distance(target, output):
     max_distance = length_difference + char_difference
     return max_distance
 
-def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[], dataset_mode='sorted'):
+def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[], dataset_mode='sorted', as="model"):
     global global_num_labels, global_num_annots
     global_num_labels = utils.get_num_labels(dataset_name)
     global_num_annots = utils.get_num_annots(dataset_name)
     model = Model(model_id, num_labels=global_num_labels, num_annots=global_num_annots)   
     tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, model.tokenizer, col_for_num_labels, remove_columns=remove_columns, mode=dataset_mode)
     if 'intra' in filename: 
-        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra_model-{dataset_mode}"
+        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra_model-{dataset_mode}-{as}"
     else:
-        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter_model-{dataset_mode}"
+        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter_model-{dataset_mode}-{as}"
 
     def compute_metrics(eval_preds):
         if type(eval_preds) == transformers.trainer_utils.EvalPrediction:

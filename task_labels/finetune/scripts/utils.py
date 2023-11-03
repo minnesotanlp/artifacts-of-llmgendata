@@ -132,9 +132,11 @@ def get_dataloader(filename):
     dataloader = DataLoader(data, batch_size=BATCH_SIZE, shuffle=False, worker_init_fn = seed_init_fn)
     return dataloader
 
-def get_tokenized_data(filename, dataset, tokenizer, col_for_num_labels, remove_columns, mode="sorted"):
+def get_tokenized_data(filename, dataset, tokenizer, col_for_num_labels, remove_columns, mode="sorted", as="model"):
     def preprocess_function(sample, target="model_annots_str"):
     #def preprocess_function(sample, padding="max_length", target="model_annots_str", max_target_length=32):
+        if as == "human":
+            target = "human_annots_str"
         # target is just labels so we can hardcode it as 32
         # add prefix to the input for t5
         inputs = []
