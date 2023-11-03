@@ -302,7 +302,7 @@ main(filename = '../data/intermodel_data.csv',
      dataset_name = "ghc",
      remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
      col_for_num_labels = "human_annots",
-     dataset_mode = 'sorted',
+     dataset_mode = 'frequency',
      target_col = "human_annots_str")
 '''
 main(filename = '../data/intramodel_data.csv', 
