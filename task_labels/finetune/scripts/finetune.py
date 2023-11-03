@@ -37,7 +37,6 @@ import utils
 # intermodel************ DATA [['model_name', 'dataset_name', 'text_ind', 'text', 'prompt', 'human_annots', 'model_annots']
 from custom_trainer import CustomSeq2SeqTrainer
 # we want to ignore tokenizer pad token in the loss
-label_pad_token_id = -100
 # Data collator
 BATCH_SIZE = utils.get_batch_size()
 LR = 1e-4
@@ -65,7 +64,7 @@ class Model:
             #my_config["prefix_allowed_tokens_fn"] = restrict_decode_vocab #not json serializable
             my_config['renormalize_logits'] = True
             my_config['return_dict_in_generate'] = True
-            my_config['bos_token_id'] = 0
+            #my_config['bos_token_id'] = 0
             self.tokenizer = T5Tokenizer.from_pretrained(model_name)
             peft_config = LoraConfig(
                 #task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1
@@ -152,7 +151,7 @@ class Model:
                 tokenizer=self.tokenizer,
                 model=self.model,
                 #label_pad_token_id=-100,
-                pad_to_multiple_of=num_annots
+                #pad_to_multiple_of=num_annots
             )
         early_stopping = EarlyStoppingCallback(early_stopping_patience=5)
         #"constraints": [
@@ -183,17 +182,16 @@ def max_edit_distance(target, output):
     max_distance = length_difference + char_difference
     return max_distance
 
-def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[], dataset_mode='sorted', as="model"):
+def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[], dataset_mode='sorted', target_col='model_annots_str'):
     global global_num_labels, global_num_annots
     global_num_labels = utils.get_num_labels(dataset_name)
     global_num_annots = utils.get_num_annots(dataset_name)
     model = Model(model_id, num_labels=global_num_labels, num_annots=global_num_annots)   
-    tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, model.tokenizer, col_for_num_labels, remove_columns=remove_columns, mode=dataset_mode)
+    tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, model.tokenizer, col_for_num_labels, remove_columns=remove_columns, mode=dataset_mode, target_col=target_col)
     if 'intra' in filename: 
-        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra_model-{dataset_mode}-{as}"
+        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra_model-{dataset_mode}-{target_col}"
     else:
-        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter_model-{dataset_mode}-{as}"
-
+        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter_model-{dataset_mode}-{target_col}"
     def compute_metrics(eval_preds):
         if type(eval_preds) == transformers.trainer_utils.EvalPrediction:
             preds = eval_preds.predictions
@@ -292,19 +290,20 @@ main(filename = '../data/intramodel_data.csv',
      remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'],
      col_for_num_labels = "model_annots",
      dataset_mode = 'sorted')
-'''
 main(filename = '../data/intramodel_data.csv', 
      model_id = "google/t5-v1_1-large",#"roberta-base",
      dataset_name = "ghc",
      remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'],
      col_for_num_labels = "model_annots",
      dataset_mode = 'sorted')
+'''
 main(filename = '../data/intermodel_data.csv', 
      model_id = "google/t5-v1_1-large",#"roberta-base",
-     dataset_name = "ghc",
+     dataset_name = "SChem5Labels",
      remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
      col_for_num_labels = "human_annots",
-     dataset_mode = 'sorted')
+     dataset_mode = 'sorted',
+     target_col = "human_annots_str")
 '''
 main(filename = '../data/intramodel_data.csv', 
      model_id = "google/t5-v1_1-large",#"roberta-base",
