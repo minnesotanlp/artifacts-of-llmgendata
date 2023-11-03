@@ -8,10 +8,16 @@ accelerator = Accelerator()
 import nltk 
 import random
 from collections import Counter
-BATCH_SIZE = 64
+BATCH_SIZE = -1
 RANDOM_SEED = 42
 
 def get_batch_size():
+    if dataset_name in ['SChem5Labels', 'Sentiment']:
+        BATCH_SIZE = 64
+    elif dataset_name in ['SBIC', 'ghc']:
+        BATCH_SIZE = 16
+    else:
+        raise Exception("dataset_name not supported or not entered")
     return BATCH_SIZE
 
 def seed_init_fn(seed):
@@ -135,10 +141,6 @@ def get_dataloader(filename):
 def get_tokenized_data(filename, dataset, tokenizer, col_for_num_labels, remove_columns, mode="sorted", target_col="model_annots_str"):
     def preprocess_function(sample, target=target_col):
     #def preprocess_function(sample, padding="max_length", target="model_annots_str", max_target_length=32):
-        if as == "human":
-            target = "human_annots_str"
-        # target is just labels so we can hardcode it as 32
-        # add prefix to the input for t5
         inputs = []
         for i in range(len(sample[col_for_num_labels])):
             #prompt = f"##### Predict a set of annotations from {len(sample[col_for_num_labels][i])} different people #####\n" 
