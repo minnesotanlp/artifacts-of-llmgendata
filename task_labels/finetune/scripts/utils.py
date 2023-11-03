@@ -8,7 +8,7 @@ accelerator = Accelerator()
 import nltk 
 import random
 from collections import Counter
-BATCH_SIZE = 8
+BATCH_SIZE = 64
 RANDOM_SEED = 42
 
 def get_batch_size():
@@ -46,6 +46,7 @@ def format_dataset(filename, dataset_name, mode="sorted"):
     np.random.seed(RANDOM_SEED)
     df = pd.read_csv(filename)
     df = df[df['dataset_name'] == dataset_name]
+    df.reset_index(inplace=True)
     # since nans are already removed here (still checking below just in case), we may have lists that are shorter than expected
     if mode == "sorted":
         for col in ['human_annots', 'model_annots']:

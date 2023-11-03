@@ -1,9 +1,9 @@
-import evaluate
 import os
 os.environ["WANDB_PROJECT"] = "artifacts"
 os.environ["WANDB_LOG_MODEL"] = "checkpoint"
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 import torch
+torch.cuda.empty_cache()
 import random
 from random import randrange        
 import json
@@ -46,8 +46,8 @@ from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 global_num_labels = 0
 global_num_annots = 0
 
-def restrict_decode_vocab(a, b):
-    return [209, 204, 220, 314, 305]
+#def restrict_decode_vocab(a, b):
+#    return [209, 204, 220, 314, 305]
 
 class Model:
     def __init__(self, model_name, num_labels=0, num_annots=0):
@@ -126,7 +126,7 @@ class Model:
             save_strategy="epoch",
             save_total_limit=2,
             load_best_model_at_end=True,
-            metric_for_best_model="train_loss",
+            metric_for_best_model="loss",
             greater_is_better=False,
             report_to="wandb",
             push_to_hub=False,
@@ -190,9 +190,9 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]
     model = Model(model_id, num_labels=global_num_labels, num_annots=global_num_annots)   
     tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, model.tokenizer, col_for_num_labels, remove_columns=remove_columns, mode=dataset_mode)
     if 'intra' in filename: 
-        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra_model"
+        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra_model-{dataset_mode}"
     else:
-        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter_model"
+        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter_model-{dataset_mode}"
 
     def compute_metrics(eval_preds):
         if type(eval_preds) == transformers.trainer_utils.EvalPrediction:
@@ -295,17 +295,29 @@ main(filename = '../data/intramodel_data.csv',
 '''
 main(filename = '../data/intramodel_data.csv', 
      model_id = "google/t5-v1_1-large",#"roberta-base",
-     dataset_name = "SChem5Labels",
+     dataset_name = "ghc",
      remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'],
      col_for_num_labels = "model_annots",
      dataset_mode = 'sorted')
 main(filename = '../data/intermodel_data.csv', 
      model_id = "google/t5-v1_1-large",#"roberta-base",
-     dataset_name = "SChem5Labels",
-     remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'model_annots'],
+     dataset_name = "ghc",
+     remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
      col_for_num_labels = "human_annots",
      dataset_mode = 'sorted')
 '''
+main(filename = '../data/intramodel_data.csv', 
+     model_id = "google/t5-v1_1-large",#"roberta-base",
+     dataset_name = "SBIC",
+     remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'],
+     col_for_num_labels = "model_annots",
+     dataset_mode = 'frequency')
+main(filename = '../data/intermodel_data.csv', 
+     model_id = "google/t5-v1_1-large",#"roberta-base",
+     dataset_name = "SBIC",
+     remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
+     col_for_num_labels = "human_annots",
+     dataset_mode = 'frequency')
 main(filename = '../data/intramodel_data.csv', 
      model_id = "google/t5-v1_1-small",#"roberta-base",
      dataset_name = "Sentiment",

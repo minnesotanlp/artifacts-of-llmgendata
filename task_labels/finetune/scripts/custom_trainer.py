@@ -7,7 +7,7 @@ log_softmax = torch.nn.LogSoftmax()
 import torch.nn.functional as F
 ALLOWED_IDS = [209, 204, 220, 314, 305]
 from transformers import T5Tokenizer, T5ForConditionalGeneration
-
+'''
 def restrict_decode_vocab(a, b):
     return [209, 204, 220, 314, 305]
 
@@ -18,7 +18,7 @@ def get_dist_matrix(num_labels):
     # Print the matrix
     for row in matrix:
         print(" ".join(map(str, row)))
-
+'''
 class CustomSeq2SeqTrainer(Seq2SeqTrainer):
     def compute_loss(self, model, inputs, return_outputs=False):
         num_classes = len(ALLOWED_IDS)
