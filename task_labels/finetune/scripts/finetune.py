@@ -283,7 +283,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]
 
 
 col_for_num_labels = "human_annots"
-
+'''
 main(filename = '../data/intramodel_data.csv', 
      model_id = "google/t5-v1_1-large",
      dataset_name = "SBIC",
@@ -322,14 +322,19 @@ main(filename = '../data/intramodel_data.csv',
      remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
      col_for_num_labels = "human_annots",
      dataset_mode = 'dataset-frequency')
-'''
+main(filename = '../data/intramodel_data.csv', 
+     model_id = "google/t5-v1_1-large",#"roberta-base",
+     dataset_name = "SChem5Labels",
+     remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
+     col_for_num_labels = "human_annots",
+     dataset_mode = 'dataset-frequency')
 main(filename = '../data/intramodel_data.csv', 
      model_id = "google/t5-v1_1-large",#"roberta-base",
      dataset_name = "SBIC",
      remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
      col_for_num_labels = "human_annots",
      dataset_mode = 'shuffle')
-main(filename = '../data/intramodel_data.csv', 
+main(filename = '../data/intermodel_data.csv', 
      model_id = "google/t5-v1_1-large",#"roberta-base",
      dataset_name = "SBIC",
      remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
@@ -341,10 +346,16 @@ main(filename = '../data/intermodel_data.csv',
      dataset_name = "SBIC",
      remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
      col_for_num_labels = "human_annots",
+     dataset_mode = 'shuffle',
+     target_col = "human_annots_str")
+     model_id = "google/t5-v1_1-large",#"roberta-base",
+     dataset_name = "SBIC",
+     remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
+     col_for_num_labels = "human_annots",
      dataset_mode = 'frequency')
 main(filename = '../data/intermodel_data.csv', 
      model_id = "google/t5-v1_1-large",#"roberta-base",
-     dataset_name = "ghc",
+     dataset_name = "SBIC",
      remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
      col_for_num_labels = "human_annots",
      dataset_mode = 'frequency',
