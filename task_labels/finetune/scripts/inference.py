@@ -1,7 +1,31 @@
-import torch
-torch.cuda.empty_cache()
+# location of accelerate/deepspeed config file
+#/home/risako/.cache/huggingface/accelerate/default_config.yaml
+
 import os
-os.environ['VISIBLE_CUDA_DEVICES'] = '0,1'
+#os.environ['VISIBLE_CUDA_DEVICES'] = '0,1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
+import gc
+import torch
+from pynvml import *
+nvmlInit()
+torch.cuda.init()
+def memory(msg):
+    print(msg)
+    '''
+    handle = nvmlDeviceGetHandleByIndex(0)
+    res = nvmlDeviceGetUtilizationRates(handle)
+    print(f'nvml gpu: {res.gpu}%, gpu-mem: {res.memory}%')
+    handle = nvmlDeviceGetHandleByIndex(1)
+    res = nvmlDeviceGetUtilizationRates(handle)
+    print(f'nvml gpu: {res.gpu}%, gpu-mem: {res.memory}%')
+
+    print(torch.cuda.memory_summary(device="cuda:0", abbreviated=True))
+    print(torch.cuda.memory_summary(device=1, abbreviated=True))
+    '''
+memory("FIRST")
+gc.collect()
+torch.cuda.empty_cache()
 import accelerate
 import numpy as np
 from torch.utils.data import DataLoader
@@ -24,7 +48,10 @@ import pickle
 from transformers import T5ForConditionalGeneration, T5Tokenizer
 import torch
 
+#dataset_name = 'SChem5Labels'
+#dataset_name = 'Sentiment'
 dataset_name = 'ghc'
+#dataset_name = 'SBIC'
 # Load the pre-trained model and tokenizer
 #model_name = f"owanr/{dataset_name}-google-t5-v1_1-large-intra_model-sorted"
 model_id = "google/t5-v1_1-large"
@@ -39,6 +66,39 @@ my_config["prefix_allowed_tokens_fn"] = restrict_decode_vocab #not json serializ
 my_config['max_new_tokens'] = 5
 my_config['min_new_tokens'] = 5
 #my_config['bos_token_id'] = 0
+
+def pretty_size(size):
+    """Pretty prints a torch.Size object"""
+    assert(isinstance(size, torch.Size))
+    return " × ".join(map(str, size))
+
+def dump_tensors(gpu_only=True):
+    """Prints a list of the Tensors being tracked by the garbage collector."""
+    import gc
+    total_size = 0
+    for obj in gc.get_objects():
+        try:
+            if torch.is_tensor(obj):
+                if not gpu_only or obj.is_cuda:
+                    print("%s:%s%s %s" % (type(obj).__name__,
+                                          " GPU" if obj.is_cuda else "",
+                                          " pinned" if obj.is_pinned else "",
+                                          pretty_size(obj.size())))
+                    total_size += obj.numel()
+            elif hasattr(obj, "data") and torch.is_tensor(obj.data):
+                if not gpu_only or obj.is_cuda:
+                    print("%s → %s:%s%s%s%s %s" % (type(obj).__name__,
+                                                   type(obj.data).__name__,
+                                                   " GPU" if obj.is_cuda else "",
+                                                   " pinned" if obj.data.is_pinned else "",
+                                                   " grad" if obj.requires_grad else "",
+                                                   " volatile" if obj.volatile else "",
+                                                   pretty_size(obj.data.size())))
+                    total_size += obj.data.numel()
+        except Exception as e:
+            pass
+    print("Total size:", total_size)
+
 
 def dataset_hist(cat):
     with open(f'../data/test_data_{cat}_{dataset_name}.pkl', 'rb') as f:
@@ -63,19 +123,20 @@ def dataset_hist(cat):
 def create_hist():
     for cat in ['inter', 'intra']:
         #for dataset_mode in ['sorted', 'shuffle', 'dataset-frequency', 'frequency']:
-        torch.cuda.empty_cache()
+        # TODO: get human labels here
         for dataset_mode in ['dataset-frequency', 'frequency']:
-            torch.cuda.empty_cache()
             for target_col in ['human_annots_str', 'model_annots_str']:
+                print(dataset_name, cat, dataset_mode, target_col)
+                memory(target_col + dataset_mode + cat)
                 hf_model = f"owanr/{dataset_name}-{model_id.replace('/','-')}-{cat}_model-{dataset_mode}-{target_col}"
                 # check if file exsts
                 title = f'{hf_model.replace("owanr/","")}'
-                if os.path.exists(f"./png/{title}.png"):
+                if False and os.path.exists(f"./png/{title}.png"):
                     print(f"Skipping {hf_model.replace('owanr/','')} since it exists already")
                     continue
                 try:
-                    model = T5ForConditionalGeneration.from_pretrained(hf_model, device_map="auto", load_in_8bit=True)
-                    #model.to(acc.device)
+                    model = T5ForConditionalGeneration.from_pretrained(hf_model)#, device_map="auto", load_in_8bit=True)
+                    model.to(acc.device)
                 except Exception as e:
                     print(f"Failed to load {hf_model}")
                     print(e)
@@ -85,6 +146,8 @@ def create_hist():
                 with open(f'../data/test_data_{cat}_{dataset_name}.pkl', 'rb') as f:
                     test_data = pickle.load(f)
                 texts = test_data['text']
+                print(len(texts))
+                texts = texts[:150]
 
                 inputs = tokenizer.batch_encode_plus(texts, return_tensors="pt", padding=True, truncation=True)
                 inputs['decoder_input_ids'] = inputs['input_ids'].clone()
@@ -92,7 +155,9 @@ def create_hist():
 
                 # Perform inference
                 with torch.no_grad():
+                    memory('before gen' + target_col + dataset_mode + cat)
                     outputs = model.generate(**inputs, **my_config)
+                    memory('after gen' + target_col + dataset_mode + cat)
 
                 # remove input portion of output
                 output_ids = outputs[0][:, inputs['input_ids'].shape[-1]:]
@@ -101,6 +166,8 @@ def create_hist():
                     annots += [int(x) for x in list(answer.replace("nan","").replace(".","").replace(' ',''))]
 
                 # plot annots into simple histogram
-                visualize.create_hist_from_lst(annots, num_labels=5, title=title)
+                num_labels = utils.get_num_labels(dataset_name)
+                #visualize.create_hist_from_lst(annots, num_labels=num_labels, title=title)
+                del model
 
 create_hist()

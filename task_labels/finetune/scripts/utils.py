@@ -60,19 +60,26 @@ def format_dataset(filename, dataset_name, mode="sorted"):
             df[f'{col}_str'] = df[col].apply(lambda x: " ".join([str(i) for i in x]))
     elif "dataset-frequency" in mode:# [frequency, reverse_frequency]
         for col in ['human_annots', 'model_annots']:
-            for i in range(df[col].shape[0]):
-                this_str = df[col][i][1:-1].replace(" ", "").replace("nan", "").replace(".", "")
-            
-            # get the whole frequency here?
-            # iterate through again and reorder
-            for i in range(df[col].shape[0]):
-                # adding 1 of each label so it shows up in final string - won't mess up frequency order
-                #this_str += ''.join([str(num) for num in range(get_num_labels(dataset_name))])
-                freq_dict = dict(Counter([row for row in this_str]))
-                freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
-                new_str = ' '.join([str(k)*freq_dict[k] for k in freq_dict.keys()])
-                df[col][i] = list(new_str)
-            df[f'{col}_str'] = df[col].apply(lambda x: (' '.join(list(x))))
+            all_annots = [row[1:-1].replace(" ", "").replace("nan", "").replace(".", "") for row in df[col]]
+            all_annots = ''.join(all_annots)
+            all_annots = [annot for annot in all_annots]
+            freq_dict = dict(Counter(all_annots))
+            freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="dataset-frequency")))
+        print('=========', freq_dict)
+        for i in range(df[col].shape[0]):
+            this_str = df[col][i][1:-1].replace(" ", "").replace("nan", "").replace(".", "")
+            # adding 1 of each label so it shows up in final string - won't mess up frequency order
+            #this_str += ''.join([str(num) for num in range(get_num_labels(dataset_name))])
+            row_freq_dict = dict(Counter([el for el in this_str]))
+            #print("THIS STR", this_str)
+            #print("freq_dict", freq_dict)
+            #row_freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
+            #print("row_freq_dict", row_freq_dict)
+            new_str = ''.join([str(k)*row_freq_dict.get(k, 0) for k in freq_dict.keys()])
+            #print("NEW_STR", new_str)
+            df[col][i] = list(new_str)
+        df[f'{col}_str'] = df[col].apply(lambda x: (' '.join(list(x))))
+        print(df[f'{col}_str'][:10])
     elif "frequency" in mode:# [frequency, reverse_frequency]
         for col in ['human_annots', 'model_annots']:
             for i in range(df[col].shape[0]):
@@ -81,7 +88,7 @@ def format_dataset(filename, dataset_name, mode="sorted"):
                 #this_str += ''.join([str(num) for num in range(get_num_labels(dataset_name))])
                 freq_dict = dict(Counter([row for row in this_str]))
                 freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
-                new_str = ''.join([str(k)*freq_dict[k] for k in freq_dict.keys()])
+                new_str = ' '.join([str(k)*freq_dict[k] for k in freq_dict.keys()])
                 df[col][i] = list(new_str)
             df[f'{col}_str'] = df[col].apply(lambda x: (' '.join(list(x))))
     elif mode == "shuffle":
