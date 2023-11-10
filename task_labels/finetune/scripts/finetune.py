@@ -153,7 +153,7 @@ class Model:
                 #label_pad_token_id=-100,
                 #pad_to_multiple_of=num_annots
             )
-        early_stopping = EarlyStoppingCallback(early_stopping_patience=4)
+        early_stopping = EarlyStoppingCallback(early_stopping_patience=5)
         #"constraints": [
         #    DisjunctiveConstraint([[209, 204, 220, 314, 305]]),
         self.trainer = trainer(
@@ -188,6 +188,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]
     global_num_annots = utils.get_num_annots(dataset_name)
     BATCH_SIZE = utils.get_batch_size(dataset_name)
     model = Model(model_id, num_labels=global_num_labels, num_annots=global_num_annots)   
+    # contains labels and string-versions of annotations
     tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, model.tokenizer, col_for_num_labels, remove_columns=remove_columns, mode=dataset_mode, target_col=target_col)
     if 'intra' in filename: 
         repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra_model-{dataset_mode}-{target_col}"
@@ -301,9 +302,33 @@ main(filename = '../data/intramodel_data.csv',
 main(filename = '../data/intramodel_data.csv', 
      model_id = "google/t5-v1_1-large",#"roberta-base",
      dataset_name = "SChem5Labels",
-     remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
-     col_for_num_labels = "human_annots",
+     remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'model_annots'],
+     col_for_num_labels = "model_annots",
      dataset_mode = 'dataset-frequency')
+     #target_col = "human_annots_str")
+main(filename = '../data/intramodel_data.csv', 
+     model_id = "google/t5-v1_1-large",#"roberta-base",
+     dataset_name = "Sentiment",
+     remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'model_annots'],
+     col_for_num_labels = "model_annots",
+     dataset_mode = 'dataset-frequency')
+     #target_col = "human_annots_str")
+'''
+main(filename = '../data/intramodel_data.csv', 
+     model_id = "google/t5-v1_1-large",#"roberta-base",
+     dataset_name = "SBIC",
+     remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'model_annots'],
+     col_for_num_labels = "model_annots",
+     dataset_mode = 'dataset-frequency',
+     target_col = "human_annots_str")
+'''
+main(filename = '../data/intramodel_data.csv', 
+     model_id = "google/t5-v1_1-large",#"roberta-base",
+     dataset_name = "ghc",
+     remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'model_annots'],
+     col_for_num_labels = "model_annots",
+     dataset_mode = 'dataset-frequency',
+     target_col = "human_annots_str")
 '''
 main(filename = '../data/intramodel_data.csv', 
      model_id = "google/t5-v1_1-large",#"roberta-base",
@@ -318,12 +343,6 @@ main(filename = '../data/intramodel_data.csv',
      col_for_num_labels = "human_annots",
      dataset_mode = 'shuffle',
      target_col = "human_annots_str")
-main(filename = '../data/intermodel_data.csv', 
-     model_id = "google/t5-v1_1-large",#"roberta-base",
-     dataset_name = "SBIC",
-     remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
-     col_for_num_labels = "human_annots",
-     dataset_mode = 'frequency')
 main(filename = '../data/intermodel_data.csv', 
      model_id = "google/t5-v1_1-large",#"roberta-base",
      dataset_name = "SBIC",
@@ -376,10 +395,6 @@ main(filename = '../data/intramodel_data.csv',
      remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'],
      col_for_num_labels = "model_annots",
      dataset_mode = 'sorted')
-main(filename = '../data/intermodel_data.csv', 
-     remove_columns = ['model_name', 'dataset_name', 'text_ind', 'prompt', 'human_annots'],
-     repository_id = f"{MODEL_ID.split('/')[1]}-inter_model",
-     col_for_num_labels = "model_annots")
 main(filename = '../data/intramodel_data.csv', 
      remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'model_annots'],
      repository_id = f"{MODEL_ID.split('/')[1]}-intra_human",
