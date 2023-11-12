@@ -1,15 +1,17 @@
 # location of accelerate/deepspeed config file
 #/home/risako/.cache/huggingface/accelerate/default_config.yaml
-
+import random
 import os
 #os.environ['VISIBLE_CUDA_DEVICES'] = '0,1'
 os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
+from scipy.stats import kendalltau, spearmanr
 import gc
 import torch
 from pynvml import *
 nvmlInit()
 torch.cuda.init()
+import utils
 def memory(msg):
     print(msg)
     '''
@@ -47,11 +49,16 @@ import visualize
 import pickle
 from transformers import T5ForConditionalGeneration, T5Tokenizer
 import torch
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import confusion_matrix
+from sklearn.model_selection import cross_val_predict
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import KFold
+from scipy.stats import rankdata
 
-#dataset_name = 'SChem5Labels'
-#dataset_name = 'Sentiment'
-dataset_name = 'ghc'
-#dataset_name = 'SBIC'
+
 # Load the pre-trained model and tokenizer
 #model_name = f"owanr/{dataset_name}-google-t5-v1_1-large-intra_model-sorted"
 model_id = "google/t5-v1_1-large"
@@ -121,53 +128,137 @@ def dataset_hist(cat):
 #dataset_hist('intra')
 
 def create_hist():
-    for cat in ['inter', 'intra']:
-        #for dataset_mode in ['sorted', 'shuffle', 'dataset-frequency', 'frequency']:
-        # TODO: get human labels here
-        for dataset_mode in ['dataset-frequency', 'frequency']:
-            for target_col in ['human_annots_str', 'model_annots_str']:
-                print(dataset_name, cat, dataset_mode, target_col)
-                memory(target_col + dataset_mode + cat)
-                hf_model = f"owanr/{dataset_name}-{model_id.replace('/','-')}-{cat}_model-{dataset_mode}-{target_col}"
-                # check if file exsts
-                title = f'{hf_model.replace("owanr/","")}'
-                if False and os.path.exists(f"./png/{title}.png"):
-                    print(f"Skipping {hf_model.replace('owanr/','')} since it exists already")
-                    continue
-                try:
-                    model = T5ForConditionalGeneration.from_pretrained(hf_model)#, device_map="auto", load_in_8bit=True)
-                    model.to(acc.device)
-                except Exception as e:
-                    print(f"Failed to load {hf_model}")
-                    print(e)
-                    print("")
-                    continue
-                annots = []
-                with open(f'../data/test_data_{cat}_{dataset_name}.pkl', 'rb') as f:
-                    test_data = pickle.load(f)
-                texts = test_data['text']
-                print(len(texts))
-                texts = texts[:150]
+    num_instances = 50
+    for dataset_name in ['SChem5Labels', 'Sentiment', 'ghc', 'SBIC']:
+    #for dataset_name in ['SChem5Labels']:
+        num_annots = utils.get_num_annots(dataset_name)
+        num_labels = utils.get_num_labels(dataset_name)
+        # get human labels here
+        for cat in ['inter', 'intra']:
+            # load pkl file
+            pkl_file = f'../data/test_data_{cat}_{dataset_name}.pkl'
+            if not os.path.exists(pkl_file):
+                print(f"Skipping {pkl_file} since it doesn't exist")
+                continue
+            with open(pkl_file, 'rb') as f:
+                test_data = pickle.load(f)
+            human_annots = []
+            for ha in test_data['human_annots'][:num_instances]:
+                ha = ha[1:-1].replace("'","").replace("nan","").replace(".","").split()
+                ha = random.choices([int(x) for x in ha], k=num_annots)
+                #if len(ha) < num_annots:
+                #    ha += [-1] * (num_annots - len(ha))
+                human_annots += ha
+            model_annots = []
+            for ma in test_data['model_annots'][:num_instances]:
+                ma = ma[1:-1].replace("'","").replace("nan","").replace(".","").split()
+                ma = random.choices([int(x) for x in ma], k=num_annots)
+                #if len(ma) < num_annots:
+                #    ma += [-1] * (num_annots - len(ma))
+                model_annots += ma
+            #for dataset_mode in ['sorted', 'shuffle', 'dataset-frequency', 'frequency']:
+            # TODO: get human labels here
+            for dataset_mode in ['dataset-frequency', 'frequency']:
+                for target_col in ['human_annots_str', 'model_annots_str']:
+                    print(dataset_name, cat, dataset_mode, target_col)
+                    memory(target_col + dataset_mode + cat)
+                    hf_model = f"owanr/{dataset_name}-{model_id.replace('/','-')}-{cat}_model-{dataset_mode}-{target_col}"
+                    # check if file exsts
+                    title = f'{hf_model.replace("owanr/","")}'
+                    if False and os.path.exists(f"./png/{title}.png"):
+                        print(f"Skipping {hf_model.replace('owanr/','')} since it exists already")
+                        continue
+                    try:
+                        model = T5ForConditionalGeneration.from_pretrained(hf_model)#, device_map="auto", load_in_8bit=True)
+                        model.to(acc.device)
+                    except Exception as e:
+                        print(f"Failed to load {hf_model}")
+                        print(e)
+                        print("")
+                        continue
+                    annots = []
+                    with open(f'../data/test_data_{cat}_{dataset_name}.pkl', 'rb') as f:
+                        test_data = pickle.load(f)
+                    texts = test_data['text']
+                    texts = texts[:num_instances]
+                    inputs = tokenizer.batch_encode_plus(texts, return_tensors="pt", padding=True, truncation=True)
+                    print(inputs.keys())
+                    print(inputs['input_ids'].shape)
+                    inputs['decoder_input_ids'] = inputs['input_ids'].clone()
+                    inputs = inputs.to(model.device)
 
-                inputs = tokenizer.batch_encode_plus(texts, return_tensors="pt", padding=True, truncation=True)
-                inputs['decoder_input_ids'] = inputs['input_ids'].clone()
-                inputs = inputs.to(model.device)
+                    # Perform inference
+                    with torch.no_grad():
+                        memory('before gen' + target_col + dataset_mode + cat)
+                        outputs = model.generate(**inputs, **my_config)
+                        print(outputs['sequences'].shape)
+                        return
+                        memory('after gen' + target_col + dataset_mode + cat)
 
-                # Perform inference
-                with torch.no_grad():
-                    memory('before gen' + target_col + dataset_mode + cat)
-                    outputs = model.generate(**inputs, **my_config)
-                    memory('after gen' + target_col + dataset_mode + cat)
+                    # remove input portion of output
+                    output_ids = outputs[0][:, inputs['input_ids'].shape[-1]:]
+                    answers = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
+                    for answer in answers:
+                        annots += [int(x) for x in list(answer.replace("nan","").replace(".","").replace(' ',''))]
 
-                # remove input portion of output
-                output_ids = outputs[0][:, inputs['input_ids'].shape[-1]:]
-                answers = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
-                for answer in answers:
-                    annots += [int(x) for x in list(answer.replace("nan","").replace(".","").replace(' ',''))]
+                    predicted_array = np.array(annots)
+                    gold_array = np.array(human_annots) if target_col == 'human_annots_str' else np.array(model_annots)
+                    # Calculate Kendall's Tau
+                    try:
+                        kendall_tau, _ = kendalltau(predicted_array, gold_array)
+                        print(f"Kendall's Tau: {kendall_tau}")
 
-                # plot annots into simple histogram
-                num_labels = utils.get_num_labels(dataset_name)
-                #visualize.create_hist_from_lst(annots, num_labels=num_labels, title=title)
-                del model
+                        # Calculate Spearman's Rank Correlation
+                        spearman_corr, _ = spearmanr(predicted_array, gold_array)
+                        print(f"Spearman's Rank Correlation: {spearman_corr}")
+                    except Exception as e:
+                        print(e)
+                        print("")
+                        continue
+                    
+                    title_pref = f'{dataset_name}_{cat}_{dataset_mode}_{target_col}'
+
+                    plt.figure(figsize=(8, 6))
+                    plt.scatter(gold_array, predicted_array, color='blue', label='Data Points')
+                    plt.plot(gold_array, predicted_array, color='red', linestyle='-', linewidth=2, label='Line of Best Fit')
+
+                    # Add labels and title
+                    plt.xlabel('Gold Labels')
+                    plt.ylabel('Predicted Labels')
+
+                    # Add a legend
+                    plt.legend()
+                    plt.savefig(title_pref+'ScatterPlotofGoldvsPredictedLabels.png')
+
+                    # 1. Distribution Comparison
+                    plt.figure(figsize=(10, 6))
+                    sns.histplot([gold_array, predicted_array], kde=True, bins=2, color=['blue', 'orange'], label=['Gold Labels', 'Predicted Labels'])
+                    plt.xlabel('Labels')
+                    plt.ylabel('Frequency')
+                    plt.yticks([0,1])
+                    plt.legend()
+                    plt.savefig(title_pref+'DistributionComparison.png')
+
+                    # 2. Error Analysis
+                    errors = np.abs(predicted_array - gold_array)
+                    plt.figure(figsize=(10, 6))
+                    sns.histplot(errors, kde=True, bins=num_labels, color='red', label='Error')
+                    plt.xlabel('Absolute Error')
+                    plt.ylabel('Frequency')
+                    plt.legend()
+                    plt.savefig(title_pref+'ErrorAnalysis.png')
+
+                    # 3. Confusion Matrix
+                    conf_matrix = confusion_matrix(gold_array, predicted_array)
+                    plt.figure(figsize=(8, 6))
+                    sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues', xticklabels=np.unique(gold_array), yticklabels=np.unique(gold_array))
+                    plt.xlabel('Predicted Labels')
+                    plt.ylabel('True Labels')
+                    plt.savefig(title_pref+'ConfusionMatrix.png')
+
+                    # plot annots into simple histogram
+                    num_labels = utils.get_num_labels(dataset_name)
+                    #visualize.create_hist_from_lst(annots, num_labels=num_labels, title=title)
+                    del model
 
 create_hist()
