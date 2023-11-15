@@ -64,16 +64,6 @@ from scipy.stats import rankdata
 model_id = "google/t5-v1_1-large"
 tokenizer = T5Tokenizer.from_pretrained(model_id)
 acc = accelerate.Accelerator()
-my_config = {}
-#my_config['renormalize_logits'] = True
-my_config['return_dict_in_generate'] = True
-def restrict_decode_vocab(a, b):
-    return [209, 204, 220, 314, 305]
-my_config["prefix_allowed_tokens_fn"] = restrict_decode_vocab #not json serializable
-my_config['max_new_tokens'] = 5
-my_config['min_new_tokens'] = 5
-#my_config['bos_token_id'] = 0
-
 def pretty_size(size):
     """Pretty prints a torch.Size object"""
     assert(isinstance(size, torch.Size))
@@ -127,12 +117,21 @@ def dataset_hist(cat):
 #dataset_hist('inter')
 #dataset_hist('intra')
 
-def create_hist():
-    num_instances = 50
-    for dataset_name in ['SChem5Labels', 'Sentiment', 'ghc', 'SBIC']:
-    #for dataset_name in ['SChem5Labels']:
+def get_second_order_annots():
+    #for dataset_name in ['SChem5Labels', 'Sentiment', 'ghc', 'SBIC']:
+    for dataset_name in ['ghc']:
         num_annots = utils.get_num_annots(dataset_name)
         num_labels = utils.get_num_labels(dataset_name)
+        my_config = {}
+        #my_config['renormalize_logits'] = True
+        my_config['return_dict_in_generate'] = True
+        def restrict_decode_vocab(a, b):
+            return [209, 204, 220, 314, 305][:num_labels-1]
+        my_config["prefix_allowed_tokens_fn"] = restrict_decode_vocab #not json serializable
+        my_config['max_new_tokens'] = num_annots
+        my_config['min_new_tokens'] = num_annots
+        my_config['bos_token_id'] = 0
+
         # get human labels here
         for cat in ['inter', 'intra']:
             # load pkl file
@@ -142,15 +141,16 @@ def create_hist():
                 continue
             with open(pkl_file, 'rb') as f:
                 test_data = pickle.load(f)
+            random.seed(42)
             human_annots = []
-            for ha in test_data['human_annots'][:num_instances]:
+            for ha in test_data['human_annots']:
                 ha = ha[1:-1].replace("'","").replace("nan","").replace(".","").split()
                 ha = random.choices([int(x) for x in ha], k=num_annots)
                 #if len(ha) < num_annots:
                 #    ha += [-1] * (num_annots - len(ha))
                 human_annots += ha
             model_annots = []
-            for ma in test_data['model_annots'][:num_instances]:
+            for ma in test_data['model_annots']:
                 ma = ma[1:-1].replace("'","").replace("nan","").replace(".","").split()
                 ma = random.choices([int(x) for x in ma], k=num_annots)
                 #if len(ma) < num_annots:
@@ -180,10 +180,19 @@ def create_hist():
                     with open(f'../data/test_data_{cat}_{dataset_name}.pkl', 'rb') as f:
                         test_data = pickle.load(f)
                     texts = test_data['text']
-                    texts = texts[:num_instances]
+                    print("HOW MANY INSTANCES DO I HAVE", len(texts))
+                    for text in texts:
+                        text_input = tokenizer(text, return_tensors="pt", padding=True, truncation=True)
+                        text_input['decoder_input_ids'] = text_input['input_ids'].clone()
+                        text_input = text_input.to(model.device)
+                        with torch.no_grad():
+                            text_output = model.generate(**text_input, **my_config)
+                        text_output_ids = text_output['sequences'][:, text_input['input_ids'].shape[-1]:]
+                        answer = tokenizer.decode(text_output_ids[0], skip_special_tokens=True)
+                        answer = [int(x) for x in list(answer.replace('nan','').replace('.','').replace(' ',''))]
+                        annots += answer
+                    '''
                     inputs = tokenizer.batch_encode_plus(texts, return_tensors="pt", padding=True, truncation=True)
-                    print(inputs.keys())
-                    print(inputs['input_ids'].shape)
                     inputs['decoder_input_ids'] = inputs['input_ids'].clone()
                     inputs = inputs.to(model.device)
 
@@ -200,6 +209,7 @@ def create_hist():
                     answers = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
                     for answer in answers:
                         annots += [int(x) for x in list(answer.replace("nan","").replace(".","").replace(' ',''))]
+                    '''
 
                     predicted_array = np.array(annots)
                     gold_array = np.array(human_annots) if target_col == 'human_annots_str' else np.array(model_annots)
@@ -218,6 +228,26 @@ def create_hist():
                     
                     title_pref = f'{dataset_name}_{cat}_{dataset_mode}_{target_col}'
 
+                    with open(f'{title_pref}.pkl', 'wb') as f:
+                        pickle.dump((gold_array, predicted_array, kendall_tau, spearman_corr), f)
+                    #with open(f'{title_pref}.pkl', 'rb') as f:
+                    #    gold_array, predicted_array, kendall_tau, spearman_corr = pickle.load(f)
+def analyze_second_order_annots():
+    for dataset_name in ['SChem5Labels', 'Sentiment', 'ghc', 'SBIC']:
+        num_annots = utils.get_num_annots(dataset_name)
+        num_labels = utils.get_num_labels(dataset_name)
+        for cat in ['inter', 'intra']:
+            random.seed(42)
+            for dataset_mode in ['dataset-frequency', 'frequency']:
+                # first check both files exist
+                if not os.path.exists(f'old/{dataset_name}_{cat}_{dataset_mode}_human_annots_str.pkl') or not os.path.exists(f'old/{dataset_name}_{cat}_{dataset_mode}_model_annots_str.pkl'):
+                    print(f"Skipping {dataset_name}_{cat}_{dataset_mode} since it's missing files")
+                    continue
+                for target_col in ['human_annots_str', 'model_annots_str']:
+                    title_pref = f'{dataset_name}_{cat}_{dataset_mode}_{target_col}'
+                    with open(f'old/{title_pref}.pkl', 'rb') as f:
+                        # when kendall_tau and spearman_corr are nan, it means the annots are all the same for one or both
+                        gold_array, predicted_array, kendall_tau, spearman_corr = pickle.load(f)
                     plt.figure(figsize=(8, 6))
                     plt.scatter(gold_array, predicted_array, color='blue', label='Data Points')
                     plt.plot(gold_array, predicted_array, color='red', linestyle='-', linewidth=2, label='Line of Best Fit')
@@ -228,8 +258,9 @@ def create_hist():
 
                     # Add a legend
                     plt.legend()
-                    plt.savefig(title_pref+'ScatterPlotofGoldvsPredictedLabels.png')
-
+                    plt.savefig(f'png/{title_pref}ScatterPlotofGoldvsPredictedLabels.png')
+                    plt.close()
+                    continue
                     # 1. Distribution Comparison
                     plt.figure(figsize=(10, 6))
                     sns.histplot([gold_array, predicted_array], kde=True, bins=2, color=['blue', 'orange'], label=['Gold Labels', 'Predicted Labels'])
@@ -237,7 +268,8 @@ def create_hist():
                     plt.ylabel('Frequency')
                     plt.yticks([0,1])
                     plt.legend()
-                    plt.savefig(title_pref+'DistributionComparison.png')
+                    plt.savefig(f'png/{title_pref}DistributionComparison.png')
+                    plt.close()
 
                     # 2. Error Analysis
                     errors = np.abs(predicted_array - gold_array)
@@ -246,7 +278,8 @@ def create_hist():
                     plt.xlabel('Absolute Error')
                     plt.ylabel('Frequency')
                     plt.legend()
-                    plt.savefig(title_pref+'ErrorAnalysis.png')
+                    plt.savefig(f'png/{title_pref}ErrorAnalysis.png')
+                    plt.close()
 
                     # 3. Confusion Matrix
                     conf_matrix = confusion_matrix(gold_array, predicted_array)
@@ -254,11 +287,12 @@ def create_hist():
                     sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues', xticklabels=np.unique(gold_array), yticklabels=np.unique(gold_array))
                     plt.xlabel('Predicted Labels')
                     plt.ylabel('True Labels')
-                    plt.savefig(title_pref+'ConfusionMatrix.png')
+                    plt.savefig(f'png/{title_pref}ConfusionMatrix.png')
+                    plt.close()
 
                     # plot annots into simple histogram
                     num_labels = utils.get_num_labels(dataset_name)
                     #visualize.create_hist_from_lst(annots, num_labels=num_labels, title=title)
-                    del model
 
-create_hist()
+#get_second_order_annots()
+analyze_second_order_annots()

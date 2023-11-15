@@ -192,10 +192,15 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]
     tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, model.tokenizer, col_for_num_labels, remove_columns=remove_columns, mode=dataset_mode, target_col=target_col)
     loss_type = "mse"
     if 'intra' in filename: 
-        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra_model-{dataset_mode}-{target_col}_mse"
+        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra_model-{dataset_mode}-{target_col}-pairwise-mse"
     else:
-        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter_model-{dataset_mode}-{target_col}_mse"
+        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter_model-{dataset_mode}-{target_col}-pairwise-mse"
     def compute_metrics(eval_preds):
+        try:
+            print(type(eval_preds))
+            print(eval_preds.keys())
+        except:
+            pass
         if type(eval_preds) == transformers.trainer_utils.EvalPrediction:
             preds = eval_preds.predictions
             labels = eval_preds.label_ids
@@ -225,10 +230,17 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]
             elif not s1.isdigit():
                 losses.append(nltk.edit_distance(s1, s2))
                 continue
-            # Calculate length penalty
-            length_penalty = abs(len(s1) - len(s2))
             s1_digits = [int(s) for s in s1 if s.isdigit()]
             s2_digits = [int(s) for s in s2 if s.isdigit()]
+            
+            ### pairwise mse start
+            pairwise_squared_diff = torch.square(s1_digits - s2_digits)
+            mse = torch.mean(pairwise_squared_diff)
+            ### pairwise mse end
+            losses.append(mse)
+            '''
+            # Calculate length penalty
+            length_penalty = abs(len(s1) - len(s2))
             # character penalty: check number of numbers
             if s1_digits == s2_digits:
                 character_penalty = 0
@@ -267,29 +279,54 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]
             )
             losses.append(total_loss)
             #losses.append(min(total_loss, 1))
+            '''
         return {'losses': losses, 'train_loss': np.mean(losses), 'eval_train_loss': np.mean(losses)}
 
     model.set_tokenized_dataset(tokenized_dataset)
     model.set_training_var(repository_id, compute_metrics)
+    model.model.config.use_cache = False
     model.trainer.train()
-    model.trainer.evaluate(
-        eval_dataset=tokenized_dataset["test"],
-        #metric_key_prefix=""
-    )
-    model.model.save_pretrained(repository_id) 
-    model.tokenizer.save_pretrained(repository_id)
+    #model.trainer.evaluate(
+    #    eval_dataset=tokenized_dataset["test"],
+    #    #metric_key_prefix=""
+    #)
+    model.model.save_pretrained(f'{repository_id}.pt') 
+    model.tokenizer.save_pretrained(f'{repository_id}.pt')
     model.trainer.create_model_card()
     model.trainer.push_to_hub()
 
 
 col_for_num_labels = "human_annots"
+
+for dn in ['SChem5Labels', 'ghc', 'SBIC', 'Sentiment']:
+    for m in ['frequency', 'dataset-frequency']:
+        main(filename = '../data/intramodel_data.csv', 
+             model_id = "google/t5-v1_1-large",
+             dataset_name = dn,
+             remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'],
+             col_for_num_labels = "model_annots",
+             dataset_mode = m)
+        main(filename = '../data/intermodel_data.csv', 
+             model_id = "google/t5-v1_1-large",#"roberta-base",
+             dataset_name = dn,
+             remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
+             col_for_num_labels = "human_annots",
+             dataset_mode = m)
+        main(filename = '../data/intramodel_data.csv', 
+             model_id = "google/t5-v1_1-large",
+             dataset_name = dn,
+             remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'],
+             col_for_num_labels = "model_annots",
+             dataset_mode = m,
+             target_col='human_annots_str')
+        main(filename = '../data/intermodel_data.csv', 
+             model_id = "google/t5-v1_1-large",#"roberta-base",
+             dataset_name = dn,
+             remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
+             col_for_num_labels = "human_annots",
+             dataset_mode = m,
+             target_col = "human_annots_str")
 '''
-main(filename = '../data/intramodel_data.csv', 
-     model_id = "google/t5-v1_1-large",
-     dataset_name = "SBIC",
-     remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'],
-     col_for_num_labels = "model_annots",
-     dataset_mode = 'frequency')
 main(filename = '../data/intramodel_data.csv', 
      model_id = "google/t5-v1_1-large",
      dataset_name = "SBIC",
@@ -334,13 +371,6 @@ main(filename = '../data/intramodel_data.csv',
      remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
      col_for_num_labels = "human_annots",
      dataset_mode = 'shuffle')
-main(filename = '../data/intermodel_data.csv', 
-     model_id = "google/t5-v1_1-large",#"roberta-base",
-     dataset_name = "SBIC",
-     remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
-     col_for_num_labels = "human_annots",
-     dataset_mode = 'shuffle',
-     target_col = "human_annots_str")
 main(filename = '../data/intermodel_data.csv', 
      model_id = "google/t5-v1_1-large",#"roberta-base",
      dataset_name = "SBIC",
