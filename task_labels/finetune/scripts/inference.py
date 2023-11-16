@@ -30,6 +30,7 @@ gc.collect()
 torch.cuda.empty_cache()
 import accelerate
 import numpy as np
+from numpy.polynomial.polynomial import Polynomial
 from torch.utils.data import DataLoader
 from peft import PeftModel    
 from transformers import (
@@ -64,38 +65,6 @@ from scipy.stats import rankdata
 model_id = "google/t5-v1_1-large"
 tokenizer = T5Tokenizer.from_pretrained(model_id)
 acc = accelerate.Accelerator()
-def pretty_size(size):
-    """Pretty prints a torch.Size object"""
-    assert(isinstance(size, torch.Size))
-    return " × ".join(map(str, size))
-
-def dump_tensors(gpu_only=True):
-    """Prints a list of the Tensors being tracked by the garbage collector."""
-    import gc
-    total_size = 0
-    for obj in gc.get_objects():
-        try:
-            if torch.is_tensor(obj):
-                if not gpu_only or obj.is_cuda:
-                    print("%s:%s%s %s" % (type(obj).__name__,
-                                          " GPU" if obj.is_cuda else "",
-                                          " pinned" if obj.is_pinned else "",
-                                          pretty_size(obj.size())))
-                    total_size += obj.numel()
-            elif hasattr(obj, "data") and torch.is_tensor(obj.data):
-                if not gpu_only or obj.is_cuda:
-                    print("%s → %s:%s%s%s%s %s" % (type(obj).__name__,
-                                                   type(obj.data).__name__,
-                                                   " GPU" if obj.is_cuda else "",
-                                                   " pinned" if obj.data.is_pinned else "",
-                                                   " grad" if obj.requires_grad else "",
-                                                   " volatile" if obj.volatile else "",
-                                                   pretty_size(obj.data.size())))
-                    total_size += obj.data.numel()
-        except Exception as e:
-            pass
-    print("Total size:", total_size)
-
 
 def dataset_hist(cat):
     with open(f'../data/test_data_{cat}_{dataset_name}.pkl', 'rb') as f:
@@ -117,9 +86,17 @@ def dataset_hist(cat):
 #dataset_hist('inter')
 #dataset_hist('intra')
 
+def clean_row(row, num_labels, num_annots):
+    # very specific to the string from the pkl file
+    row = row[1:-1].replace("'","").replace("nan","").replace(".","").split()
+    row = [int(x) for x in row]
+    row = [num for num in row if 0 <= num and num < num_labels]
+    row = random.choices(row, k=num_annots)
+    return row
+
 def get_second_order_annots():
-    #for dataset_name in ['SChem5Labels', 'Sentiment', 'ghc', 'SBIC']:
-    for dataset_name in ['ghc']:
+    for dataset_name in ['SChem5Labels', 'Sentiment', 'ghc', 'SBIC']:
+    #for dataset_name in ['ghc']:
         num_annots = utils.get_num_annots(dataset_name)
         num_labels = utils.get_num_labels(dataset_name)
         my_config = {}
@@ -144,18 +121,10 @@ def get_second_order_annots():
             random.seed(42)
             human_annots = []
             for ha in test_data['human_annots']:
-                ha = ha[1:-1].replace("'","").replace("nan","").replace(".","").split()
-                ha = random.choices([int(x) for x in ha], k=num_annots)
-                #if len(ha) < num_annots:
-                #    ha += [-1] * (num_annots - len(ha))
-                human_annots += ha
+                human_annots += clean_row(ha, num_labels, num_annots)
             model_annots = []
             for ma in test_data['model_annots']:
-                ma = ma[1:-1].replace("'","").replace("nan","").replace(".","").split()
-                ma = random.choices([int(x) for x in ma], k=num_annots)
-                #if len(ma) < num_annots:
-                #    ma += [-1] * (num_annots - len(ma))
-                model_annots += ma
+                model_annots += clean_row(ma, num_labels, num_annots)
             #for dataset_mode in ['sorted', 'shuffle', 'dataset-frequency', 'frequency']:
             # TODO: get human labels here
             for dataset_mode in ['dataset-frequency', 'frequency']:
@@ -244,43 +213,52 @@ colors = {
         'human_annots_str': 'orange',
         'model_annots_str': 'green'
     }}
-def analyze_second_order_annots(plot_type):
+def analyze_second_order_annots():
     for dataset_name in ['SChem5Labels', 'Sentiment', 'ghc', 'SBIC']:
         num_annots = utils.get_num_annots(dataset_name)
         num_labels = utils.get_num_labels(dataset_name)
         for dataset_mode in ['dataset-frequency', 'frequency']:
             random.seed(42)
-            plt.figure(figsize=(8, 6))
-            if plot_type == 'scatter':
-                for ci, cat in enumerate(['inter', 'intra']):
-                    # first check both files exist
-                    if not os.path.exists(f'old/{dataset_name}_{cat}_{dataset_mode}_human_annots_str.pkl') or not os.path.exists(f'old/{dataset_name}_{cat}_{dataset_mode}_model_annots_str.pkl'):
-                        print(f"Skipping {dataset_name}_{cat}_{dataset_mode} since it's missing files")
-                        continue
-                    for ti, target_col in enumerate(['human_annots_str', 'model_annots_str']):
-                        title_pref = f'{dataset_name}_{cat}_{dataset_mode}_{target_col}'
-                        with open(f'old/{title_pref}.pkl', 'rb') as f:
-                            # when kendall_tau and spearman_corr are nan, it means the annots are all the same for one or both
-                            gold_array, predicted_array, kendall_tau, spearman_corr = pickle.load(f)
-                        # add jitter
-                        j_gold_array = np.add(gold_array, np.random.normal(0, 0.1, gold_array.shape), casting='unsafe')
-                        j_predicted_array = np.add(predicted_array, np.random.normal(0, 0.1, predicted_array.shape), casting='unsafe')
-                        #predicted_array += np.random.normal(0, 0.1, predicted_array.shape)
-                        plt.scatter(j_gold_array, j_predicted_array, marker=shapes[ci], c=colors[cat][target_col], label=f'{cat}_{target_col}', s=2)
-                        # add correlation line
-                        corr_lines = np.poly1d(np.polyfit(gold_array, predicted_array, 1)) * np.unique(gold_array)
-                        plt.plot(np.unique(gold_array), corr_lines, c=colors[cat][target_col])
 
-                        # Add labels and title
-                        plt.ylim(0, num_labels)
-                        plt.xlim(0, num_labels)
-                        plt.xlabel('Gold Labels')
-                        plt.ylabel('Predicted Labels')
+            # Latex table
+            print(f'{dataset_name} {dataset_mode}***')
+            print('\\begin\\{table\\}[h]\\n')
+            print('\\begin\\{tabular\\}\\{|l|l|l|l|l|\\}\\n')
+            print('\\hline\\n')
+            print('& \\multicolumn\\{2\\}\\{|c|\\}\\{\\{\\textbf\\{Inter\\}\\}\\} & \\multicolumn\\{2\\}\\{|c|\\}\\{\\{\\textbf\\{Intra\\}\\}\\} \\\\\\n')
+            print('& \\textbf\\{Human\\} & \\textbf\\{Model\\} & \\textbf\\{Human\\} & \\textbf\\{Model\\} \\\\\\n')
+            print('\\hline\\n')
+            temp = {}
+            for ci, cat in enumerate(['inter', 'intra']):
+                # first check both files exist
+                if not os.path.exists(f'old/{dataset_name}_{cat}_{dataset_mode}_human_annots_str.pkl') or not os.path.exists(f'old/{dataset_name}_{cat}_{dataset_mode}_model_annots_str.pkl'):
+                    print(f"Skipping {dataset_name}_{cat}_{dataset_mode} since it's missing files")
+                    continue
+                temp[cat] = {"human_annots_str": {}, "model_annots_str": {}}
+                for ti, target_col in enumerate(['human_annots_str', 'model_annots_str']):
+                    title_pref = f'{dataset_name}_{cat}_{dataset_mode}_{target_col}'
+                    with open(f'old/{title_pref}.pkl', 'rb') as f:
+                        # when kendall_tau and spearman_corr are nan, it means the annots are all the same for one or both
+                        # TODO: MAKE SURE THERE ARE NO INVALID ANNOTATIONS
+                        gold_array, predicted_array, kendall_tau, spearman_corr = pickle.load(f)
+                    # 1d because the ideal line is 1d
+                    corr2 = Polynomial.fit(gold_array, predicted_array, 1)
+                    temp[cat][target_col]['Slope'] = corr2.convert().coef[1]
+                    temp[cat][target_col]['Intercept'] = corr2.convert().coef[0]
+                    temp[cat][target_col]['Kendall'] = kendall_tau
+                    temp[cat][target_col]['Spearman'] = spearman_corr
+            #for row_header in ['Slope', 'Intercept', 'Kendall', 'Spearman']:
+            #    print(f'{row_header} & {temp["inter"]["human_annots_str"][row_header]:.3f} & {temp["inter"]["model_annots_str"][row_header]:.3f} & {temp["intra"]["human_annots_str"][row_header]:.3f} & {temp["intra"]["model_annots_str"][row_header]:.3f} \\\\\n')
+            print('\\hline\\n')
+            print('\\end{tabular}\\n')
+            print('\\end{table}\\n\\n')
 
-                        # Add a legend
-                        plt.legend()
-                plt.savefig(f'png/{dataset_name}_{dataset_mode}_{plot_type}.png')
-            elif plot_type == 'hist':
+
+
+
+
+            if plot_type == 'hist':
+                plt.figure(figsize=(8, 6))
                 # distribution comparison
                 for ci, cat in enumerate(['inter', 'intra']):
                     # first check both files exist
@@ -330,5 +308,5 @@ def analyze_second_order_annots(plot_type):
                 #visualize.create_hist_from_lst(annots, num_labels=num_labels, title=title)
             '''
 
-#get_second_order_annots()
-analyze_second_order_annots('scatter')
+get_second_order_annots()
+#analyze_second_order_annots()

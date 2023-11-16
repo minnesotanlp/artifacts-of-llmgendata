@@ -227,14 +227,14 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]
                 #losses.append(10.0)
                 losses.append(max_distance)
                 continue
-            elif not s1.isdigit():
+            elif not s1.isdigit() or len(s1) != len(s2):
                 losses.append(nltk.edit_distance(s1, s2))
                 continue
             s1_digits = [int(s) for s in s1 if s.isdigit()]
             s2_digits = [int(s) for s in s2 if s.isdigit()]
             
             ### pairwise mse start
-            pairwise_squared_diff = torch.square(s1_digits - s2_digits)
+            pairwise_squared_diff = torch.square(np.subtract(np.array(s1_digits), np.array(s2_digits)))
             mse = torch.mean(pairwise_squared_diff)
             ### pairwise mse end
             losses.append(mse)
@@ -298,7 +298,8 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]
 
 col_for_num_labels = "human_annots"
 
-for dn in ['SChem5Labels', 'ghc', 'SBIC', 'Sentiment']:
+#for dn in ['SChem5Labels', 'ghc', 'SBIC', 'Sentiment']:
+for dn in ['ghc', 'SBIC', 'Sentiment']:
     for m in ['frequency', 'dataset-frequency']:
         main(filename = '../data/intramodel_data.csv', 
              model_id = "google/t5-v1_1-large",
