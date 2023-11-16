@@ -232,45 +232,78 @@ def get_second_order_annots():
                         pickle.dump((gold_array, predicted_array, kendall_tau, spearman_corr), f)
                     #with open(f'{title_pref}.pkl', 'rb') as f:
                     #    gold_array, predicted_array, kendall_tau, spearman_corr = pickle.load(f)
-def analyze_second_order_annots():
+
+shapes = ['o', 'x']
+colors = ['red', 'blue']
+colors = {
+    'inter': {
+        'human_annots_str': 'red',
+        'model_annots_str': 'blue'
+    },
+    'intra': {
+        'human_annots_str': 'orange',
+        'model_annots_str': 'green'
+    }}
+def analyze_second_order_annots(plot_type):
     for dataset_name in ['SChem5Labels', 'Sentiment', 'ghc', 'SBIC']:
         num_annots = utils.get_num_annots(dataset_name)
         num_labels = utils.get_num_labels(dataset_name)
-        for cat in ['inter', 'intra']:
+        for dataset_mode in ['dataset-frequency', 'frequency']:
             random.seed(42)
-            for dataset_mode in ['dataset-frequency', 'frequency']:
-                # first check both files exist
-                if not os.path.exists(f'old/{dataset_name}_{cat}_{dataset_mode}_human_annots_str.pkl') or not os.path.exists(f'old/{dataset_name}_{cat}_{dataset_mode}_model_annots_str.pkl'):
-                    print(f"Skipping {dataset_name}_{cat}_{dataset_mode} since it's missing files")
-                    continue
-                for target_col in ['human_annots_str', 'model_annots_str']:
-                    title_pref = f'{dataset_name}_{cat}_{dataset_mode}_{target_col}'
-                    with open(f'old/{title_pref}.pkl', 'rb') as f:
-                        # when kendall_tau and spearman_corr are nan, it means the annots are all the same for one or both
-                        gold_array, predicted_array, kendall_tau, spearman_corr = pickle.load(f)
-                    plt.figure(figsize=(8, 6))
-                    plt.scatter(gold_array, predicted_array, color='blue', label='Data Points')
-                    plt.plot(gold_array, predicted_array, color='red', linestyle='-', linewidth=2, label='Line of Best Fit')
+            plt.figure(figsize=(8, 6))
+            if plot_type == 'scatter':
+                for ci, cat in enumerate(['inter', 'intra']):
+                    # first check both files exist
+                    if not os.path.exists(f'old/{dataset_name}_{cat}_{dataset_mode}_human_annots_str.pkl') or not os.path.exists(f'old/{dataset_name}_{cat}_{dataset_mode}_model_annots_str.pkl'):
+                        print(f"Skipping {dataset_name}_{cat}_{dataset_mode} since it's missing files")
+                        continue
+                    for ti, target_col in enumerate(['human_annots_str', 'model_annots_str']):
+                        title_pref = f'{dataset_name}_{cat}_{dataset_mode}_{target_col}'
+                        with open(f'old/{title_pref}.pkl', 'rb') as f:
+                            # when kendall_tau and spearman_corr are nan, it means the annots are all the same for one or both
+                            gold_array, predicted_array, kendall_tau, spearman_corr = pickle.load(f)
+                        # add jitter
+                        j_gold_array = np.add(gold_array, np.random.normal(0, 0.1, gold_array.shape), casting='unsafe')
+                        j_predicted_array = np.add(predicted_array, np.random.normal(0, 0.1, predicted_array.shape), casting='unsafe')
+                        #predicted_array += np.random.normal(0, 0.1, predicted_array.shape)
+                        plt.scatter(j_gold_array, j_predicted_array, marker=shapes[ci], c=colors[cat][target_col], label=f'{cat}_{target_col}', s=2)
+                        # add correlation line
+                        corr_lines = np.poly1d(np.polyfit(gold_array, predicted_array, 1)) * np.unique(gold_array)
+                        plt.plot(np.unique(gold_array), corr_lines, c=colors[cat][target_col])
 
-                    # Add labels and title
-                    plt.xlabel('Gold Labels')
-                    plt.ylabel('Predicted Labels')
+                        # Add labels and title
+                        plt.ylim(0, num_labels)
+                        plt.xlim(0, num_labels)
+                        plt.xlabel('Gold Labels')
+                        plt.ylabel('Predicted Labels')
 
-                    # Add a legend
-                    plt.legend()
-                    plt.savefig(f'png/{title_pref}ScatterPlotofGoldvsPredictedLabels.png')
-                    plt.close()
-                    continue
-                    # 1. Distribution Comparison
-                    plt.figure(figsize=(10, 6))
-                    sns.histplot([gold_array, predicted_array], kde=True, bins=2, color=['blue', 'orange'], label=['Gold Labels', 'Predicted Labels'])
-                    plt.xlabel('Labels')
-                    plt.ylabel('Frequency')
-                    plt.yticks([0,1])
-                    plt.legend()
-                    plt.savefig(f'png/{title_pref}DistributionComparison.png')
-                    plt.close()
+                        # Add a legend
+                        plt.legend()
+                plt.savefig(f'png/{dataset_name}_{dataset_mode}_{plot_type}.png')
+            elif plot_type == 'hist':
+                # distribution comparison
+                for ci, cat in enumerate(['inter', 'intra']):
+                    # first check both files exist
+                    if not os.path.exists(f'old/{dataset_name}_{cat}_{dataset_mode}_human_annots_str.pkl') or not os.path.exists(f'old/{dataset_name}_{cat}_{dataset_mode}_model_annots_str.pkl'):
+                        print(f"Skipping {dataset_name}_{cat}_{dataset_mode} since it's missing files")
+                        continue
+                    for ti, target_col in enumerate(['human_annots_str', 'model_annots_str']):
+                        title_pref = f'{dataset_name}_{cat}_{dataset_mode}_{target_col}'
+                        with open(f'old/{title_pref}.pkl', 'rb') as f:
+                            # when kendall_tau and spearman_corr are nan, it means the annots are all the same for one or both
+                            gold_array, predicted_array, kendall_tau, spearman_corr = pickle.load(f)
 
+                        sns.histplot([gold_array, predicted_array], kde=True, bins=2, color=['blue', 'orange'], label=['Gold Labels', 'Predicted Labels'])
+                        plt.xlabel('Labels')
+                        plt.ylabel('Frequency')
+                        plt.yticks([0,1])
+
+                        # Add a legend
+                        plt.legend()
+                plt.savefig(f'png/delete_{title_pref}_DistributionComparison.png')
+            plt.close()
+            '''
+            elif plot_type == 'error':
                     # 2. Error Analysis
                     errors = np.abs(predicted_array - gold_array)
                     plt.figure(figsize=(10, 6))
@@ -280,7 +313,8 @@ def analyze_second_order_annots():
                     plt.legend()
                     plt.savefig(f'png/{title_pref}ErrorAnalysis.png')
                     plt.close()
-
+            elif plot_type == 'confusion':
+                ##################################################
                     # 3. Confusion Matrix
                     conf_matrix = confusion_matrix(gold_array, predicted_array)
                     plt.figure(figsize=(8, 6))
@@ -290,9 +324,11 @@ def analyze_second_order_annots():
                     plt.savefig(f'png/{title_pref}ConfusionMatrix.png')
                     plt.close()
 
-                    # plot annots into simple histogram
-                    num_labels = utils.get_num_labels(dataset_name)
-                    #visualize.create_hist_from_lst(annots, num_labels=num_labels, title=title)
+
+                # plot annots into simple histogram
+                num_labels = utils.get_num_labels(dataset_name)
+                #visualize.create_hist_from_lst(annots, num_labels=num_labels, title=title)
+            '''
 
 #get_second_order_annots()
-analyze_second_order_annots()
+analyze_second_order_annots('scatter')
