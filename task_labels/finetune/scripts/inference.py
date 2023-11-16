@@ -5,6 +5,9 @@ import os
 #os.environ['VISIBLE_CUDA_DEVICES'] = '0,1'
 os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+
+from torch.distributed.elastic.multiprocessing.errors import record
 import gc
 import torch
 from pynvml import *
@@ -12,7 +15,6 @@ nvmlInit()
 torch.cuda.init()
 def memory(msg):
     print(msg)
-    '''
     handle = nvmlDeviceGetHandleByIndex(0)
     res = nvmlDeviceGetUtilizationRates(handle)
     print(f'nvml gpu: {res.gpu}%, gpu-mem: {res.memory}%')
@@ -22,7 +24,6 @@ def memory(msg):
 
     print(torch.cuda.memory_summary(device="cuda:0", abbreviated=True))
     print(torch.cuda.memory_summary(device=1, abbreviated=True))
-    '''
 memory("FIRST")
 gc.collect()
 torch.cuda.empty_cache()
@@ -119,7 +120,7 @@ def dataset_hist(cat):
 # doesn't matter   
 #dataset_hist('inter')
 #dataset_hist('intra')
-
+@record
 def create_hist():
     for cat in ['inter', 'intra']:
         #for dataset_mode in ['sorted', 'shuffle', 'dataset-frequency', 'frequency']:
