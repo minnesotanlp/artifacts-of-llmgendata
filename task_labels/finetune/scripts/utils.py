@@ -102,7 +102,7 @@ def format_dataset(filename, dataset_name, mode="sorted"):
                 df[col][i] = [str(el) for el in x]
             df[f'{col}_str'] = df[col].apply(lambda x: (' '.join(list(x))))
     # remove last sentence fragment for multi-label tasks
-    #df['short_prompt'] = df['prompt'].apply(lambda x: x[(x.index("Sentence: ")):].replace("Among the given options, I think the most appropriate option is (",""))
+    df['short_prompt'] = df['text'].apply(lambda x: 'Multi-label classification results: ' + x)
             #.replace("Sentence: ", "##### Sentence #####\n")\
             #.replace("Label options: ", "\n##### Labels options #####\n"))
     return df
@@ -167,7 +167,9 @@ def get_tokenized_data(filename, dataset, tokenizer, col_for_num_labels, remove_
         #    labels["input_ids"] = [
         #        [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
         #    ]
+        model_inputs["short_prompt"] = inputs
         model_inputs["labels"] = labels["input_ids"]
+        model_inputs["decoder_input_ids"] = model_inputs["input_ids"]
         return model_inputs
 
     data = get_data(filename, dataset, mode)
