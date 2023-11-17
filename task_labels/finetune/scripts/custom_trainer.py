@@ -32,6 +32,9 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         logits = torch.moveaxis(outputs.logits, 2, 1)
         j_losses = []
         loss = loss_fct(logits, labels)
+        # TODO: make it so that the order doesn't matter
+        # TODO: make it use the ordinal characteristic
+        # 
         return (loss, outputs) if return_outputs else loss
         print("LOGIT DIM", logits.shape)
         print("FIRST DECODE")

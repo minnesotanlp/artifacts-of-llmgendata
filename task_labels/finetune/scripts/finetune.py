@@ -19,6 +19,7 @@ from transformers import (
     Adafactor,
     get_linear_schedule_with_warmup,
     get_cosine_schedule_with_warmup,
+    get_cosine_with_hard_restarts_schedule_with_warmup,
     EarlyStoppingCallback,
     GenerationConfig
     )
@@ -38,10 +39,12 @@ import utils
 # intramodel [['dataset_name', 'text_ind', 'text', 'prompt', 'params', 'human_annots', 'model_annots']
 # intermodel************ DATA [['model_name', 'dataset_name', 'text_ind', 'text', 'prompt', 'human_annots', 'model_annots']
 from custom_trainer import CustomSeq2SeqTrainer
+from trl import SFTTrainer
 # we want to ignore tokenizer pad token in the loss
 # Data collator
 BATCH_SIZE = -1
 LR = 1e-4
+NUM_CYCLES = 1
 from typing import List, Optional, Tuple, Union
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 global_num_labels = 0
@@ -49,6 +52,11 @@ global_num_annots = 0
 
 #def restrict_decode_vocab(a, b):
 #    return [209, 204, 220, 314, 305]
+# for cosign annealing LR
+def calculate_max_iterations(dataset_size, batch_size, num_epochs, num_cycles):
+    num_batches_per_epoch = dataset_size // batch_size
+    max_iterations = num_epochs * num_batches_per_epoch * num_cycles
+    return max_iterations
 
 class Model:
     def __init__(self, model_name, num_labels=0, num_annots=0):
@@ -94,8 +102,10 @@ class Model:
             {'params': [p for n, p in self.model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
         ]
         optimizer = AdamW(optimizer_grouped_parameters, lr=LR)
+        num_warmup_steps = 100#int(len(self.tokenized_dataset["train"]) * 0.05) 
+        num_training_steps = int(len(self.tokenized_dataset["train"])/BATCH_SIZE) + 1
         #optimizer = Adafactor(self.model.parameters(), relative_step=False, warmup_init=False, lr=LR)
-        scheduler =  get_linear_schedule_with_warmup(optimizer, num_warmup_steps=10, num_training_steps=10000)
+        scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, NUM_CYCLES)
 
         is_roberta = "roberta" in self.model_name
         if is_roberta:
@@ -117,7 +127,7 @@ class Model:
             per_device_train_batch_size=BATCH_SIZE,
             per_device_eval_batch_size=BATCH_SIZE,
             #predict_with_generate=True, #comment out for sfttrainer
-            #generation_config=self.model.generation_config,
+            #generation_config=self.model.generation_config, #commend out for sfttrainer
             fp16=True,############3
             fp16_full_eval=True,#########
             dataloader_num_workers=accelerator.num_processes,
@@ -163,6 +173,7 @@ class Model:
         #    DisjunctiveConstraint([[209, 204, 220, 314, 305]]),
         self.trainer = trainer(
             model=self.model,
+            dataset_text_field="short_prompt",
             tokenizer=self.tokenizer,
             args=self.training_args,
             optimizers=(optimizer, scheduler),
@@ -188,24 +199,20 @@ def max_edit_distance(target, output):
     max_distance = length_difference + char_difference
     return max_distance
 
-def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[], dataset_mode='sorted', target_col='model_annots_str'):
+def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, dataset_mode, target_col='model_annots_str'):
     global global_num_labels, global_num_annots, BATCH_SIZE
     global_num_labels = utils.get_num_labels(dataset_name)
     global_num_annots = utils.get_num_annots(dataset_name)
     BATCH_SIZE = utils.get_batch_size(dataset_name)
     model = Model(model_id, num_labels=global_num_labels, num_annots=global_num_annots)   
     tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, model.tokenizer, col_for_num_labels, remove_columns=remove_columns, mode=dataset_mode, target_col=target_col)
+    print(tokenized_dataset.keys())
     loss_type = "mse"
     if 'intra' in filename: 
-        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra_model-{dataset_mode}-{target_col}-pairwise-mse"
+        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra-{dataset_mode}-{target_col.replace('_annots_str', '')}-pairwise-mse-cycle1"
     else:
-        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter_model-{dataset_mode}-{target_col}-pairwise-mse"
+        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter-{dataset_mode}-{target_col.replace('_annots_str', '')}-pairwise-mse-cycle1"
     def compute_metrics(eval_preds):
-        try:
-            print(type(eval_preds))
-            print(eval_preds.keys())
-        except:
-            pass
         if type(eval_preds) == transformers.trainer_utils.EvalPrediction:
             preds = eval_preds.predictions
             labels = eval_preds.label_ids
@@ -226,17 +233,24 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]
             s2 = decoded_labels[i]
             max_distance = max_edit_distance(s1, s2)
             if len(s2.split()) < global_num_annots:
+                print("I hope it's not coming here too often")
+                print("s2", s2.split(), "global_num_annots", global_num_annots)
                 continue
             #if s1 contains characters other than digits and spaces, use edit distance
-            if s1 == '':
-                #losses.append(10.0)
-                losses.append(max_distance)
+            #if s1 == '':
+            #    #losses.append(10.0)
+            #    losses.append(max_distance)
+            #    continue
+            elif (not s1.isdigit()) or (len(s1) != len(s2)) or (s1 ==  ''):
+                losses.append(nltk.edit_distance(s1, s2)/max_distance)
                 continue
-            elif not s1.isdigit() or len(s1) != len(s2):
-                losses.append(nltk.edit_distance(s1, s2))
-                continue
+
             s1_digits = [int(s) for s in s1 if s.isdigit()]
             s2_digits = [int(s) for s in s2 if s.isdigit()]
+
+            if len(s1_digits) != len(s2_digits):
+                losses.append(nltk.edit_distance(s1, s2))
+                continue
             
             ### pairwise mse start
             pairwise_squared_diff = torch.square(np.subtract(np.array(s1_digits), np.array(s2_digits)))
@@ -304,8 +318,9 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels=[]
 col_for_num_labels = "human_annots"
 
 #for dn in ['SChem5Labels', 'ghc', 'SBIC', 'Sentiment']:
-for dn in ['ghc', 'SBIC', 'Sentiment']:
-    for m in ['frequency', 'dataset-frequency']:
+for dn in ['SChem5Labels']:
+    #for m in ['frequency', 'dataset-frequency']:
+    for m in ['dataset-frequency']:
         main(filename = '../data/intramodel_data.csv', 
              model_id = "google/t5-v1_1-large",
              dataset_name = dn,
