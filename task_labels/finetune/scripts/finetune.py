@@ -146,6 +146,7 @@ class Model:
             hub_strategy="every_save",
             hub_model_id=repository_id,
             hub_token=HfFolder.get_token(),
+            compute_loss=compute_metrics,
             #generation_config=generation_config,
         )
         self.training_args._n_gpu = 2
