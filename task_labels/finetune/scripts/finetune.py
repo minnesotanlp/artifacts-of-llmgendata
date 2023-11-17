@@ -28,6 +28,7 @@ from peft import get_peft_model, LoraConfig, TaskType
 from accelerate import Accelerator
 from transformers import T5Tokenizer, T5ForConditionalGeneration
 accelerator = Accelerator()
+from trl import SFTTrainer
 import math
 import scipy
 SEED = 42
@@ -102,18 +103,21 @@ class Model:
             trainer = CustomTrainer
             training_args = TrainingArguments
         elif "t5" in self.model_name:
+            from transformers import Trainer, TrainingArguments
             from transformers import Seq2SeqTrainer, Seq2SeqTrainingArguments
             #trainer = Seq2SeqTrainer
             #training_args = Seq2SeqTrainingArguments
-            trainer = CustomSeq2SeqTrainer
-            training_args = Seq2SeqTrainingArguments
+            #trainer = CustomSeq2SeqTrainer
+            #training_args = Seq2SeqTrainingArguments
+            trainer = SFTTrainer
+            training_args = TrainingArguments
         # Define training args
         self.training_args = training_args(
             output_dir=repository_id,
             per_device_train_batch_size=BATCH_SIZE,
             per_device_eval_batch_size=BATCH_SIZE,
-            predict_with_generate=True,
-            generation_config=self.model.generation_config,
+            #predict_with_generate=True, #comment out for sfttrainer
+            #generation_config=self.model.generation_config,
             fp16=True,############3
             fp16_full_eval=True,#########
             dataloader_num_workers=accelerator.num_processes,
@@ -167,6 +171,7 @@ class Model:
             train_dataset=self.tokenized_dataset["train"],
             eval_dataset=self.tokenized_dataset["val"],
             compute_metrics=compute_metrics,
+            dataset_text_field="text",
         )
         
 def max_edit_distance(target, output):
