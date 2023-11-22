@@ -38,6 +38,8 @@ from transformers import (
         T5Tokenizer,
         AutoModelForSeq2SeqLM,
         AutoTokenizer, 
+        MistralForCausalLM,
+        MistralTokenizer,
         StoppingCriteria, 
         StoppingCriteriaList, 
         TextIteratorStreamer)
@@ -95,8 +97,8 @@ def clean_row(row, num_labels, num_annots):
     return row
 
 def get_second_order_annots():
-    for dataset_name in ['SChem5Labels', 'Sentiment', 'ghc', 'SBIC']:
-    #for dataset_name in ['ghc']:
+    #for dataset_name in ['SChem5Labels', 'Sentiment', 'ghc', 'SBIC']:
+    for dataset_name in ['SChem5Labels']:
         num_annots = utils.get_num_annots(dataset_name)
         num_labels = utils.get_num_labels(dataset_name)
         my_config = {}
@@ -107,7 +109,7 @@ def get_second_order_annots():
         my_config["prefix_allowed_tokens_fn"] = restrict_decode_vocab #not json serializable
         my_config['max_new_tokens'] = num_annots
         my_config['min_new_tokens'] = num_annots
-        my_config['bos_token_id'] = 0
+        #my_config['bos_token_id'] = 0
         # get human labels here
         for cat in ['inter', 'intra']:
             # load pkl file
@@ -137,8 +139,14 @@ def get_second_order_annots():
                         print(f"Skipping {hf_model.replace('owanr/','')} since it exists already")
                         continue
                     try:
+                        #model = T5ForConditionalGeneration.from_pretrained(hf_model)#, device_map="auto", load_in_8bit=True)
                         model = T5ForConditionalGeneration.from_pretrained(hf_model)#, device_map="auto", load_in_8bit=True)
                         model.to(acc.device)
+                        self.model = MistralForCausalLM.from_pretrained(
+                    model_name,
+                    quantization_config=bnb_config,
+                    device_map="auto",
+                    trust_remote_code=True)
                     except Exception as e:
                         print(f"Failed to load {hf_model}")
                         print(e)

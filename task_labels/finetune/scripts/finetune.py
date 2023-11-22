@@ -21,13 +21,18 @@ from transformers import (
     get_cosine_schedule_with_warmup,
     get_cosine_with_hard_restarts_schedule_with_warmup,
     EarlyStoppingCallback,
-    GenerationConfig
+    GenerationConfig,
+    DataCollatorWithPadding,
+    DataCollatorForSeq2Seq, AutoModelForSeq2SeqLM,
+    AutoTokenizer, AutoModelForCausalLM, MistralForCausalLM,
+    Trainer, TrainingArguments, Seq2SeqTrainer, Seq2SeqTrainingArguments,
+    T5Tokenizer, T5ForConditionalGeneration,
+    BitsAndBytesConfig,
     )
+from deepspeed.runtime.utils import see_memory_usage
 import nltk
-from transformers import DataCollatorForSeq2Seq, AutoModelForSeq2SeqLM, DataCollatorWithPadding
-from peft import get_peft_model, LoraConfig, TaskType
+from peft import get_peft_model, LoraConfig, TaskType, prepare_model_for_kbit_training
 from accelerate import Accelerator
-from transformers import T5Tokenizer, T5ForConditionalGeneration
 accelerator = Accelerator()
 from trl import SFTTrainer
 import math
@@ -42,6 +47,7 @@ from custom_trainer import CustomSeq2SeqTrainer
 from trl import SFTTrainer
 # we want to ignore tokenizer pad token in the loss
 # Data collator
+num_warmup_steps = 10
 BATCH_SIZE = -1
 LR = 1e-4
 NUM_CYCLES = 1
@@ -50,6 +56,13 @@ from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 global_num_labels = 0
 global_num_annots = 0
 
+
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_compute_dtype=torch.bfloat16,
+    bnb_4bit_use_double_quant=True,
+)
 #def restrict_decode_vocab(a, b):
 #    return [209, 204, 220, 314, 305]
 # for cosign annealing LR
@@ -58,24 +71,54 @@ def calculate_max_iterations(dataset_size, batch_size, num_epochs, num_cycles):
     max_iterations = num_epochs * num_batches_per_epoch * num_cycles
     return max_iterations
 
+class CustomTrainer(SFTTrainer):
+    #def __init__(self, *args, **kwargs):
+    #    super().__init__(*args, **kwargs)
+    #    self.remove_unused_columns = False
+    def create_optimizer_and_scheduler(self, num_training_steps):
+        if self.optimizer is None:
+            decay_parameters = self.get_decay_parameter_names(self.model)
+            optimizer_grouped_parameters = [
+                {
+                    "params": [
+                        p for n, p in self.model.named_parameters() if (n in decay_parameters and p.requires_grad)
+                    ],
+                    "weight_decay": self.args.weight_decay,
+                },
+                {
+                    "params": [
+                        p for n, p in self.model.named_parameters() if (n not in decay_parameters and p.requires_grad)
+                    ],
+                    "weight_decay": 0.0,
+                },
+            ]
+            optimizer_cls, optimizer_kwargs = SFTTrainer.get_optimizer_cls_and_kwargs(self.args)
+            self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
+        num_warmup_steps = int(len(self.train_dataset) * 0.05) 
+        self.lr_scheduler =  get_cosine_with_hard_restarts_schedule_with_warmup(self.optimizer, num_warmup_steps, num_training_steps, NUM_CYCLES)
+        self._created_lr_scheduler = True
+        return (self.optimizer, self.lr_scheduler)
+
 class Model:
     def __init__(self, model_name, num_labels=0, num_annots=0):
         self.model_name = model_name
         self.num_labels = num_labels
         self.num_annots = num_annots
         if "t5" in model_name:
-            from transformers import DataCollatorForSeq2Seq, AutoModelForSeq2SeqLM, AutoTokenizer
-            from transformers import T5Tokenizer, T5ForConditionalGeneration, GenerationConfig
             import transformers
-            print(transformers.__file__)
             my_config = {}
             my_config['max_new_tokens'] = global_num_annots + 1
             my_config['min_new_tokens'] = global_num_annots + 1
             #my_config["prefix_allowed_tokens_fn"] = restrict_decode_vocab #not json serializable
             my_config['renormalize_logits'] = True
-            #my_config['return_dict_in_generate'] = True
-            my_config['bos_token_id'] = 0
-            self.tokenizer = T5Tokenizer.from_pretrained(model_name)
+            my_config['return_dict_in_generate'] = True
+            #my_config['bos_token_id'] = 0
+            self.tokenizer = T5Tokenizer.from_pretrained(model_name,
+                #quantization_config=bnb_config,
+                device_map="auto",
+                #device_map={"": 0},
+                #trust_remote_code=True
+            )
             peft_config = LoraConfig(
                 #task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1
                 task_type=TaskType.SEQ_2_SEQ_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1
@@ -84,7 +127,38 @@ class Model:
             self.model.generation_config = GenerationConfig.from_dict(my_config)
             self.model = get_peft_model(self.model, peft_config)
             self.model.print_trainable_parameters()
-            self.model.to(accelerator.device)
+            #self.model.to(accelerator.device)
+        elif "Mistral" in model_name:
+            my_config = {}
+            my_config['max_new_tokens'] = global_num_annots + 1
+            my_config['min_new_tokens'] = global_num_annots + 1
+            #my_config["prefix_allowed_tokens_fn"] = restrict_decode_vocab #not json serializable
+            my_config['renormalize_logits'] = True
+            #my_config['return_dict_in_generate'] = True
+            #my_config['bos_token_id'] = 0
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name,
+                padding_side="left",
+                add_eos_token=True,
+                add_bos_token=True)
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+            #self.tokenizer.padding_side = 'right'
+            peft_config = LoraConfig(
+                task_type=TaskType.CAUSAL_LM, inference_mode=False, r=32, lora_alpha=64, lora_dropout=0.1,
+                #target_modules=["query_key_value"]
+            )
+            self.model = MistralForCausalLM.from_pretrained(
+                    model_name,
+                    quantization_config=bnb_config,
+                    device_map="auto",
+                    trust_remote_code=True)
+            self.model.gradient_checkpointing_enable()
+            self.model = prepare_model_for_kbit_training(self.model)
+            self.model.generation_config = GenerationConfig.from_dict(my_config)
+            self.model = get_peft_model(self.model, peft_config)
+            self.model.print_trainable_parameters()
+            #self.model.to(accelerator.device) # NOT NEEDED IF USING DEEPSPEED
+        elif "roberta" in model_name:
+            raise ValueError("Not implemented")
         else:
             raise ValueError("Model model_name not supported")
         self.num_labels = num_labels
@@ -102,23 +176,21 @@ class Model:
             {'params': [p for n, p in self.model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
         ]
         optimizer = AdamW(optimizer_grouped_parameters, lr=LR)
-        num_warmup_steps = 100#int(len(self.tokenized_dataset["train"]) * 0.05) 
         num_training_steps = int(len(self.tokenized_dataset["train"])/BATCH_SIZE) + 1
         #optimizer = Adafactor(self.model.parameters(), relative_step=False, warmup_init=False, lr=LR)
         scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, NUM_CYCLES)
+        self.model, optimizer, self.tokenized_dataset['train'], scheduler = accelerator.prepare(self.model, optimizer, self.tokenized_dataset["train"], scheduler)
 
-        is_roberta = "roberta" in self.model_name
-        if is_roberta:
-            from transformers import Trainer, TrainingArguments
+        if "roberta" in self.model_name:
             trainer = CustomTrainer
             training_args = TrainingArguments
         elif "t5" in self.model_name:
-            from transformers import Trainer, TrainingArguments
-            from transformers import Seq2SeqTrainer, Seq2SeqTrainingArguments
             #trainer = Seq2SeqTrainer
             #training_args = Seq2SeqTrainingArguments
-            #trainer = CustomSeq2SeqTrainer
-            #training_args = Seq2SeqTrainingArguments
+            trainer = CustomSeq2SeqTrainer
+            training_args = Seq2SeqTrainingArguments
+        elif "Mistral" in self.model_name:
+            #trainer = CustomTrainer
             trainer = SFTTrainer
             training_args = TrainingArguments
         # Define training args
@@ -128,8 +200,8 @@ class Model:
             per_device_eval_batch_size=BATCH_SIZE,
             #predict_with_generate=True, #comment out for sfttrainer
             #generation_config=self.model.generation_config, #commend out for sfttrainer
-            fp16=True,############3
-            fp16_full_eval=True,#########
+            #fp16=True,############3
+            #fp16_full_eval=True,#########
             dataloader_num_workers=accelerator.num_processes,
             learning_rate=LR,
             num_train_epochs=200,
@@ -148,26 +220,25 @@ class Model:
             hub_strategy="every_save",
             hub_model_id=repository_id,
             hub_token=HfFolder.get_token(),
+            do_train=True,
+            remove_unused_columns = False,
+            #compute_loss=compute_metrics,
             #generation_config=generation_config,
         )
         self.training_args._n_gpu = 2
-        # Create Trainer instance
-        if not is_roberta:
+        if "t5" in self.model_name:
             data_collator = DataCollatorForSeq2Seq(
                 tokenizer=self.tokenizer,
                 model=self.model,
-                #label_pad_token_id=label_pad_token_id,
-                #pad_to_multiple_of=8
+                #label_pad_token_id=-100,label_pad_token_id,
+                pad_to_multiple_of=8 # not sure if necessary - certain GPUs just do better with multiples of 8
             )
         else:
-            from transformers import DataCollatorWithPadding
-            #data_collator = DataCollatorWithPadding(tokenizer=self.tokenizer)#, pad_to_multiple_of=8)
-            data_collator = DataCollatorForSeq2Seq(
-                tokenizer=self.tokenizer,
-                model=self.model,
-                #label_pad_token_id=-100,
-                #pad_to_multiple_of=num_annots
+            data_collator = DataCollatorWithPadding(
+                tokenizer=self.tokenizer, 
+                pad_to_multiple_of=8
             )
+            #data_collator=transformers.DataCollatorForLanguageModeling(self.tokenizer, mlm=False),
         early_stopping = EarlyStoppingCallback(early_stopping_patience=4)
         #"constraints": [
         #    DisjunctiveConstraint([[209, 204, 220, 314, 305]]),
@@ -179,10 +250,19 @@ class Model:
             optimizers=(optimizer, scheduler),
             data_collator=data_collator,
             callbacks=[early_stopping],
+            #train_dataset=self.tokenized_dataset["train"].select(range(10)),
+            #eval_dataset=self.tokenized_dataset["val"].select(range(10)),
             train_dataset=self.tokenized_dataset["train"],
             eval_dataset=self.tokenized_dataset["val"],
-            compute_metrics=compute_metrics,
+            #compute_metrics=compute_metrics,
+            packing=True,
         )
+        ## get trainer's model
+        #optim_scheduler = self.trainer.create_optimizer_and_scheduler(num_training_steps=10) #num_training_steps) ########################################################
+        #optim_scheduler = self.trainer.create_optimizer_and_scheduler(model=trainer.model, ....)
+        ## override the default optimizer
+        #trainer.optimizer = optim_scheduler[0]
+        #trainer.lr_scheduler = optim_scheduler[1]
         
 def max_edit_distance(target, output):
     # Step 1: Find the maximum length difference
@@ -205,7 +285,6 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     BATCH_SIZE = utils.get_batch_size(dataset_name)
     model = Model(model_id, num_labels=global_num_labels, num_annots=global_num_annots)   
     tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, model.tokenizer, col_for_num_labels, remove_columns=remove_columns, mode=dataset_mode, target_col=target_col)
-    print(tokenized_dataset.keys())
     loss_type = "mse"
     if 'intra' in filename: 
         repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra-{dataset_mode}-{target_col.replace('_annots_str', '')}-pairwise-mse-cycle1"
@@ -299,7 +378,6 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
             #losses.append(min(total_loss, 1))
             '''
         return {'losses': losses, 'train_loss': np.mean(losses), 'eval_train_loss': np.mean(losses)}
-
     model.set_tokenized_dataset(tokenized_dataset)
     model.set_training_var(repository_id, compute_metrics)
     model.model.config.use_cache = False
@@ -315,17 +393,19 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
 
 
 col_for_num_labels = "human_annots"
-
+#model_id = "google/t5-v1_1-large"
+model_id="mistralai/Mistral-7B-v0.1"
 #for dn in ['SChem5Labels', 'ghc', 'SBIC', 'Sentiment']:
 for dn in ['SChem5Labels']:
     #for m in ['frequency', 'dataset-frequency']:
     for m in ['dataset-frequency']:
         main(filename = '../data/intramodel_data.csv', 
-             model_id = "google/t5-v1_1-large",
+             model_id = model_id,
              dataset_name = dn,
              remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'],
              col_for_num_labels = "model_annots",
              dataset_mode = m)
+        '''
         main(filename = '../data/intermodel_data.csv', 
              model_id = "google/t5-v1_1-large",#"roberta-base",
              dataset_name = dn,
@@ -346,6 +426,7 @@ for dn in ['SChem5Labels']:
              col_for_num_labels = "human_annots",
              dataset_mode = m,
              target_col = "human_annots_str")
+        '''
 '''
 main(filename = '../data/intramodel_data.csv', 
      model_id = "google/t5-v1_1-large",

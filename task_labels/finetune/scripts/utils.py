@@ -13,7 +13,7 @@ RANDOM_SEED = 42
 
 def get_batch_size(dataset_name):
     if dataset_name in ['SChem5Labels', 'Sentiment']:
-        BATCH_SIZE = 64
+        BATCH_SIZE = 1
     elif dataset_name in ['SBIC', 'ghc']:
         BATCH_SIZE = 16
     else:
@@ -169,9 +169,10 @@ def get_tokenized_data(filename, dataset, tokenizer, col_for_num_labels, remove_
         #    ]
         model_inputs["short_prompt"] = inputs
         model_inputs["labels"] = labels["input_ids"]
+        model_inputs["label"] = labels["input_ids"]
+        model_inputs["label_ids"] = labels["input_ids"]
         model_inputs["decoder_input_ids"] = model_inputs["input_ids"]
         return model_inputs
-
     data = get_data(filename, dataset, mode)
     # TODO: maybe pass in columns to remove
     tokenized_data = data.map(
