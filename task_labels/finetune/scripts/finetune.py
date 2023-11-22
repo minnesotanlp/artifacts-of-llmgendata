@@ -182,7 +182,6 @@ class Model:
             train_dataset=self.tokenized_dataset["train"],
             eval_dataset=self.tokenized_dataset["val"],
             compute_metrics=compute_metrics,
-            dataset_text_field="text",
         )
         
 def max_edit_distance(target, output):

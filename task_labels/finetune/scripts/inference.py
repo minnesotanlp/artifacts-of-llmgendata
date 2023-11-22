@@ -108,7 +108,6 @@ def get_second_order_annots():
         my_config['max_new_tokens'] = num_annots
         my_config['min_new_tokens'] = num_annots
         my_config['bos_token_id'] = 0
-
         # get human labels here
         for cat in ['inter', 'intra']:
             # load pkl file
@@ -149,8 +148,7 @@ def get_second_order_annots():
                     with open(f'../data/test_data_{cat}_{dataset_name}.pkl', 'rb') as f:
                         test_data = pickle.load(f)
                     texts = test_data['text']
-                    print("HOW MANY INSTANCES DO I HAVE", len(texts))
-                    for text in texts:
+                    for i, text in enumerate(texts):
                         text_input = tokenizer(text, return_tensors="pt", padding=True, truncation=True)
                         text_input['decoder_input_ids'] = text_input['input_ids'].clone()
                         text_input = text_input.to(model.device)
@@ -159,7 +157,11 @@ def get_second_order_annots():
                         text_output_ids = text_output['sequences'][:, text_input['input_ids'].shape[-1]:]
                         answer = tokenizer.decode(text_output_ids[0], skip_special_tokens=True)
                         answer = [int(x) for x in list(answer.replace('nan','').replace('.','').replace(' ',''))]
+                        if i == random.randint(0, 50):
+                            print('-->', dataset_mode, target_col, text, 'model: ', answer, 'human', test_data['human_annots'][i], 'model', test_data['model_annots'][i])
+                            
                         annots += answer
+                    continue
                     '''
                     inputs = tokenizer.batch_encode_plus(texts, return_tensors="pt", padding=True, truncation=True)
                     inputs['decoder_input_ids'] = inputs['input_ids'].clone()
@@ -184,11 +186,11 @@ def get_second_order_annots():
                     gold_array = np.array(human_annots) if target_col == 'human_annots_str' else np.array(model_annots)
                     # Calculate Kendall's Tau
                     try:
-                        kendall_tau, _ = kendalltau(predicted_array, gold_array)
+                        kendall_tau, _ = round(kendalltau(predicted_array, gold_array), 3)
                         print(f"Kendall's Tau: {kendall_tau}")
 
                         # Calculate Spearman's Rank Correlation
-                        spearman_corr, _ = spearmanr(predicted_array, gold_array)
+                        spearman_corr, _ = round(spearmanr(predicted_array, gold_array), 3)
                         print(f"Spearman's Rank Correlation: {spearman_corr}")
                     except Exception as e:
                         print(e)
@@ -222,39 +224,43 @@ def analyze_second_order_annots():
 
             # Latex table
             print(f'{dataset_name} {dataset_mode}***')
-            print('\\begin\\{table\\}[h]\\n')
-            print('\\begin\\{tabular\\}\\{|l|l|l|l|l|\\}\\n')
-            print('\\hline\\n')
-            print('& \\multicolumn\\{2\\}\\{|c|\\}\\{\\{\\textbf\\{Inter\\}\\}\\} & \\multicolumn\\{2\\}\\{|c|\\}\\{\\{\\textbf\\{Intra\\}\\}\\} \\\\\\n')
-            print('& \\textbf\\{Human\\} & \\textbf\\{Model\\} & \\textbf\\{Human\\} & \\textbf\\{Model\\} \\\\\\n')
-            print('\\hline\\n')
+            print('\\begin{table}[h]')
+            print('\\begin{tabular}{|l|l|l|l|l|}')
+            print('\\hline\\\\')
+            print('& \\multicolumn{2}{|c|}{{\\textbf{Inter}}} & \\multicolumn{2}{|c|}{{\\textbf{Intra}}} \\\\')
+            print('& \\textbf{Human} & \\textbf{Model} & \\textbf{Human} & \\textbf{Model} \\\\')
+            print('\\hline\\\\')
             temp = {}
             for ci, cat in enumerate(['inter', 'intra']):
                 # first check both files exist
+                temp[cat] = {"human_annots_str": {}, "model_annots_str": {}}
                 if not os.path.exists(f'old/{dataset_name}_{cat}_{dataset_mode}_human_annots_str.pkl') or not os.path.exists(f'old/{dataset_name}_{cat}_{dataset_mode}_model_annots_str.pkl'):
                     print(f"Skipping {dataset_name}_{cat}_{dataset_mode} since it's missing files")
-                    continue
-                temp[cat] = {"human_annots_str": {}, "model_annots_str": {}}
-                for ti, target_col in enumerate(['human_annots_str', 'model_annots_str']):
-                    title_pref = f'{dataset_name}_{cat}_{dataset_mode}_{target_col}'
-                    with open(f'old/{title_pref}.pkl', 'rb') as f:
-                        # when kendall_tau and spearman_corr are nan, it means the annots are all the same for one or both
-                        # TODO: MAKE SURE THERE ARE NO INVALID ANNOTATIONS
-                        gold_array, predicted_array, kendall_tau, spearman_corr = pickle.load(f)
-                    # 1d because the ideal line is 1d
-                    corr2 = Polynomial.fit(gold_array, predicted_array, 1)
-                    temp[cat][target_col]['Slope'] = corr2.convert().coef[1]
-                    temp[cat][target_col]['Intercept'] = corr2.convert().coef[0]
-                    temp[cat][target_col]['Kendall'] = kendall_tau
-                    temp[cat][target_col]['Spearman'] = spearman_corr
-            #for row_header in ['Slope', 'Intercept', 'Kendall', 'Spearman']:
-            #    print(f'{row_header} & {temp["inter"]["human_annots_str"][row_header]:.3f} & {temp["inter"]["model_annots_str"][row_header]:.3f} & {temp["intra"]["human_annots_str"][row_header]:.3f} & {temp["intra"]["model_annots_str"][row_header]:.3f} \\\\\n')
-            print('\\hline\\n')
-            print('\\end{tabular}\\n')
-            print('\\end{table}\\n\\n')
+                    for ti, target_col in enumerate(['human_annots_str', 'model_annots_str']):
+                        temp[cat][target_col]['Slope'] = 0
+                        temp[cat][target_col]['Intercept'] = 0 
+                        temp[cat][target_col]['Kendall'] = 0
+                        temp[cat][target_col]['Spearman'] = 0
+                else:
+                    for ti, target_col in enumerate(['human_annots_str', 'model_annots_str']):
+                        title_pref = f'{dataset_name}_{cat}_{dataset_mode}_{target_col}'
+                        with open(f'old/{title_pref}.pkl', 'rb') as f:
+                            # when kendall_tau and spearman_corr are nan, it means the annots are all the same for one or both
+                            # TODO: MAKE SURE THERE ARE NO INVALID ANNOTATIONS
+                            gold_array, predicted_array, kendall_tau, spearman_corr = pickle.load(f)
+                        # 1d because the ideal line is 1d
+                        corr2 = Polynomial.fit(gold_array, predicted_array, 1)
+                        temp[cat][target_col]['Slope'] = corr2.convert().coef[1]
+                        temp[cat][target_col]['Intercept'] = corr2.convert().coef[0]
+                        temp[cat][target_col]['Kendall'] = kendall_tau
+                        temp[cat][target_col]['Spearman'] = spearman_corr
+            for row_header in ['Slope', 'Intercept', 'Kendall', 'Spearman']:
+                print(f'{row_header} & {temp["inter"]["human_annots_str"][row_header]:.3f} & {temp["inter"]["model_annots_str"][row_header]:.3f} & {temp["intra"]["human_annots_str"][row_header]:.3f} & {temp["intra"]["model_annots_str"][row_header]:.3f} \\\\')
+            print('\\hline\\\\')
+            print('\\end{tabular}\\\\')
+            print('\\end{table}\\\\')
 
-
-
+            continue
 
 
             if plot_type == 'hist':
