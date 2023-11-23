@@ -72,9 +72,23 @@ def calculate_max_iterations(dataset_size, batch_size, num_epochs, num_cycles):
     return max_iterations
 
 class CustomTrainer(SFTTrainer):
-    #def __init__(self, *args, **kwargs):
+    def compute_loss(self, model, inputs, return_outputs=False):
+        labels = inputs.pop("labels")
+        outputs = model(**inputs)
+        logits = outputs.get("logits")
+        preds = logits.argmax(-1)
+        print("LABELS", labels)
+        print("PREDICTIONS", preds)
+        print("")
+        return super().compute_loss(model, inputs, return_outputs)
+    '''
+        # compute custom loss (suppose one has 3 labels with different weights)
+        #loss_fct = nn.CrossEntropyLoss(weight=torch.tensor([1.0, 2.0, 3.0], device=model.device))
+        #loss = loss_fct(logits.view(-1, self.model.config.num_labels), labels.view(-1))
+        #return (loss, outputs) if return_outputs else loss#def __init__(self, *args, **kwargs):
     #    super().__init__(*args, **kwargs)
     #    self.remove_unused_columns = False
+    '''
     def create_optimizer_and_scheduler(self, num_training_steps):
         if self.optimizer is None:
             decay_parameters = self.get_decay_parameter_names(self.model)
@@ -104,53 +118,61 @@ class Model:
         self.model_name = model_name
         self.num_labels = num_labels
         self.num_annots = num_annots
+        my_config = {}
+        my_config['renormalize_logits'] = True
+        #my_config['return_dict_in_generate'] = True
+        # We shouldn't do this when there's no guarantee that 1 number/label = 1 token
+        #my_config['max_new_tokens'] = global_num_annots + 1
+        #my_config['min_new_tokens'] = global_num_annots + 1
         if "t5" in model_name:
-            import transformers
-            my_config = {}
-            my_config['max_new_tokens'] = global_num_annots + 1
-            my_config['min_new_tokens'] = global_num_annots + 1
             #my_config["prefix_allowed_tokens_fn"] = restrict_decode_vocab #not json serializable
-            my_config['renormalize_logits'] = True
-            my_config['return_dict_in_generate'] = True
             #my_config['bos_token_id'] = 0
             self.tokenizer = T5Tokenizer.from_pretrained(model_name,
                 #quantization_config=bnb_config,
                 device_map="auto",
-                #device_map={"": 0},
-                #trust_remote_code=True
+                pad_token='0',
+                eos_token='1',
+                low_cpu_mem_usage=True,
             )
+            #"decoder_start_token_id": 0,
+
             peft_config = LoraConfig(
-                #task_type=TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1
-                task_type=TaskType.SEQ_2_SEQ_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1
+                task_type=TaskType.SEQ_2_SEQ_LM, inference_mode=False, r=8, lora_alpha=64, lora_dropout=0.05
             )
-            self.model = T5ForConditionalGeneration.from_pretrained(model_name)
+            self.model = T5ForConditionalGeneration.from_pretrained(
+                    model_name,
+                    quantization_config=bnb_config,
+                    device_map="auto",
+                    low_cpu_mem_usage=True,
+                    )
             self.model.generation_config = GenerationConfig.from_dict(my_config)
             self.model = get_peft_model(self.model, peft_config)
             self.model.print_trainable_parameters()
             #self.model.to(accelerator.device)
-        elif "Mistral" in model_name:
-            my_config = {}
-            my_config['max_new_tokens'] = global_num_annots + 1
-            my_config['min_new_tokens'] = global_num_annots + 1
+
+        elif "Mistral" in model_name: #bfloat16
             #my_config["prefix_allowed_tokens_fn"] = restrict_decode_vocab #not json serializable
-            my_config['renormalize_logits'] = True
-            #my_config['return_dict_in_generate'] = True
             #my_config['bos_token_id'] = 0
             self.tokenizer = AutoTokenizer.from_pretrained(model_name,
                 padding_side="left",
+                bos_token='1',
+                eos_token='2',
                 add_eos_token=True,
                 add_bos_token=True)
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+            #self.tokenizer.pad_token = self.tokenizer.eos_token
             #self.tokenizer.padding_side = 'right'
             peft_config = LoraConfig(
-                task_type=TaskType.CAUSAL_LM, inference_mode=False, r=32, lora_alpha=64, lora_dropout=0.1,
-                #target_modules=["query_key_value"]
+                task_type=TaskType.CAUSAL_LM, inference_mode=False, r=32, lora_alpha=64, lora_dropout=0.05,
             )
             self.model = MistralForCausalLM.from_pretrained(
-                    model_name,
-                    quantization_config=bnb_config,
-                    device_map="auto",
-                    trust_remote_code=True)
+                model_name,
+                quantization_config=bnb_config,
+                device_map="auto",
+                low_cpu_mem_usage=True,
+            )
+            self.tokenizer.pad_token = self.tokenizer.unk_token
+            self.tokenizer.pad_token_id =  self.tokenizer.unk_token_id
+            self.model.config.use_cache = False # Gradient checkpointing is used by default but not compatible with caching
             self.model.gradient_checkpointing_enable()
             self.model = prepare_model_for_kbit_training(self.model)
             self.model.generation_config = GenerationConfig.from_dict(my_config)
@@ -180,7 +202,6 @@ class Model:
         #optimizer = Adafactor(self.model.parameters(), relative_step=False, warmup_init=False, lr=LR)
         scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, NUM_CYCLES)
         self.model, optimizer, self.tokenized_dataset['train'], scheduler = accelerator.prepare(self.model, optimizer, self.tokenized_dataset["train"], scheduler)
-
         if "roberta" in self.model_name:
             trainer = CustomTrainer
             training_args = TrainingArguments
@@ -204,24 +225,25 @@ class Model:
             #fp16_full_eval=True,#########
             dataloader_num_workers=accelerator.num_processes,
             learning_rate=LR,
-            num_train_epochs=200,
+            num_train_epochs=50,
             logging_dir=f"{repository_id}/logs",
             logging_strategy="steps",
             logging_steps=10,
             evaluation_strategy="epoch",
+            bf16=True if "Mistral" in self.model_name else False,
             save_strategy="epoch",
             save_total_limit=2,
             load_best_model_at_end=True,
             metric_for_best_model="loss",
             greater_is_better=False,
             report_to="wandb",
-            push_to_hub=False,
+            push_to_hub=True,
             include_inputs_for_metrics=True,
             hub_strategy="every_save",
             hub_model_id=repository_id,
             hub_token=HfFolder.get_token(),
             do_train=True,
-            remove_unused_columns = False,
+            #remove_unused_columns = "Mistral" in self.model_name,
             #compute_loss=compute_metrics,
             #generation_config=generation_config,
         )
@@ -239,12 +261,12 @@ class Model:
                 pad_to_multiple_of=8
             )
             #data_collator=transformers.DataCollatorForLanguageModeling(self.tokenizer, mlm=False),
-        early_stopping = EarlyStoppingCallback(early_stopping_patience=4)
+        early_stopping = EarlyStoppingCallback(early_stopping_patience=3)
         #"constraints": [
         #    DisjunctiveConstraint([[209, 204, 220, 314, 305]]),
         self.trainer = trainer(
             model=self.model,
-            dataset_text_field="short_prompt",
+            #dataset_text_field="short_prompt",    ##### only for causalLM - really need to refactor this
             tokenizer=self.tokenizer,
             args=self.training_args,
             optimizers=(optimizer, scheduler),
@@ -255,7 +277,7 @@ class Model:
             train_dataset=self.tokenized_dataset["train"],
             eval_dataset=self.tokenized_dataset["val"],
             #compute_metrics=compute_metrics,
-            packing=True,
+            #packing=True, ###### also only for causal lm
         )
         ## get trainer's model
         #optim_scheduler = self.trainer.create_optimizer_and_scheduler(num_training_steps=10) #num_training_steps) ########################################################
@@ -285,11 +307,16 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     BATCH_SIZE = utils.get_batch_size(dataset_name)
     model = Model(model_id, num_labels=global_num_labels, num_annots=global_num_annots)   
     tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, model.tokenizer, col_for_num_labels, remove_columns=remove_columns, mode=dataset_mode, target_col=target_col)
+    # RERUN THINGS WITHOUT BELOW WHEN WE HAVE TIME
+    tokenized_dataset["train"] = tokenized_dataset["train"].select(range(min(1000, len(tokenized_dataset["train"]))))
+    tokenized_dataset["val"] = tokenized_dataset["val"].select(range(min(100, len(tokenized_dataset["val"]))))
+    #tokenized_dataset["test"] = tokenized_dataset["test"].select(range(min(100, len(tokenized_dataset["test"]))))
+
     loss_type = "mse"
     if 'intra' in filename: 
-        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra-{dataset_mode}-{target_col.replace('_annots_str', '')}-pairwise-mse-cycle1"
+        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra-{dataset_mode}-{target_col.replace('_annots_str', '')}-cross-ent"
     else:
-        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter-{dataset_mode}-{target_col.replace('_annots_str', '')}-pairwise-mse-cycle1"
+        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter-{dataset_mode}-{target_col.replace('_annots_str', '')}-cross-ent"
     def compute_metrics(eval_preds):
         if type(eval_preds) == transformers.trainer_utils.EvalPrediction:
             preds = eval_preds.predictions
@@ -393,10 +420,44 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
 
 
 col_for_num_labels = "human_annots"
-#model_id = "google/t5-v1_1-large"
-model_id="mistralai/Mistral-7B-v0.1"
-#for dn in ['SChem5Labels', 'ghc', 'SBIC', 'Sentiment']:
-for dn in ['SChem5Labels']:
+model_id = "google/t5-v1_1-xl"
+#model_id="mistralai/Mistral-7B-v0.1"
+#model_id = "mistralai/Mistral-7B-Instruct-v0.1")
+
+for dn in ['SChem5Labels', 'Sentiment', 'ghc', 'SBIC']:
+    #for m in ['frequency', 'dataset-frequency']:
+    for m in ['frequency']:
+    #for m in ['dataset-frequency']:
+        main(filename = '../data/intramodel_data.csv', 
+             model_id = model_id,
+             dataset_name = dn,
+             remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'],
+             col_for_num_labels = "model_annots",
+             dataset_mode = m)
+        #'''
+        main(filename = '../data/intermodel_data.csv', 
+             model_id = model_id,
+             dataset_name = dn,
+             remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
+             col_for_num_labels = "human_annots",
+             dataset_mode = m)
+        #'''
+        main(filename = '../data/intramodel_data.csv', 
+             model_id = model_id,
+             dataset_name = dn,
+             remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'],
+             col_for_num_labels = "model_annots",
+             dataset_mode = m,
+             target_col='human_annots_str')
+        main(filename = '../data/intermodel_data.csv', 
+             model_id = model_id,
+             dataset_name = dn,
+             remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
+             col_for_num_labels = "human_annots",
+             dataset_mode = m,
+             target_col = "human_annots_str")
+'''
+for dn in ['ghc', 'SBIC', 'Sentiment']:
     #for m in ['frequency', 'dataset-frequency']:
     for m in ['dataset-frequency']:
         main(filename = '../data/intramodel_data.csv', 
@@ -405,7 +466,6 @@ for dn in ['SChem5Labels']:
              remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'],
              col_for_num_labels = "model_annots",
              dataset_mode = m)
-        '''
         main(filename = '../data/intermodel_data.csv', 
              model_id = "google/t5-v1_1-large",#"roberta-base",
              dataset_name = dn,
@@ -426,8 +486,6 @@ for dn in ['SChem5Labels']:
              col_for_num_labels = "human_annots",
              dataset_mode = m,
              target_col = "human_annots_str")
-        '''
-'''
 main(filename = '../data/intramodel_data.csv', 
      model_id = "google/t5-v1_1-large",
      dataset_name = "SBIC",
