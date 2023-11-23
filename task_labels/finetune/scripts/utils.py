@@ -12,10 +12,11 @@ BATCH_SIZE = -1
 RANDOM_SEED = 42
 
 def get_batch_size(dataset_name):
+    # 1 when model is xl+
     if dataset_name in ['SChem5Labels', 'Sentiment']:
-        BATCH_SIZE = 1
+        BATCH_SIZE = 32
     elif dataset_name in ['SBIC', 'ghc']:
-        BATCH_SIZE = 16
+        BATCH_SIZE = 8
     else:
         raise Exception("dataset_name not supported or not entered")
     return BATCH_SIZE
@@ -65,7 +66,6 @@ def format_dataset(filename, dataset_name, mode="sorted"):
             all_annots = [annot for annot in all_annots]
             freq_dict = dict(Counter(all_annots))
             freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="dataset-frequency")))
-            print('=========', freq_dict)
             for i in range(df[col].shape[0]):
                 this_str = df[col][i][1:-1].replace(" ", "").replace("nan", "").replace(".", "")
                 # adding 1 of each label so it shows up in final string - won't mess up frequency order
@@ -78,9 +78,7 @@ def format_dataset(filename, dataset_name, mode="sorted"):
                 new_str = ''.join([str(k)*row_freq_dict.get(k, 0) for k in freq_dict.keys()])
                 #print("NEW_STR", new_str)
                 df[col][i] = list(new_str)
-            print("GOT HERE?")
             df[f'{col}_str'] = df[col].apply(lambda x: (' '.join(list(x))))
-            print(df[f'{col}_str'][:10])
     elif "frequency" in mode:# [frequency, reverse_frequency]
         for col in ['human_annots', 'model_annots']:
             for i in range(df[col].shape[0]):
@@ -91,7 +89,6 @@ def format_dataset(filename, dataset_name, mode="sorted"):
                 freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
                 new_str = ' '.join([str(k)*freq_dict[k] for k in freq_dict.keys()])
                 df[col][i] = list(new_str)
-            print("GOT HERE?")
             df[f'{col}_str'] = df[col].apply(lambda x: (' '.join(list(x))))
     elif mode == "shuffle":
         for col in ['human_annots', 'model_annots']:
@@ -130,7 +127,7 @@ def split(df, suffix=''):
     return DatasetDict({
         "train": Dataset.from_pandas(train_data),
         "val": Dataset.from_pandas(val_data),
-        "test": Dataset.from_pandas(test_data)
+        #"test": Dataset.from_pandas(test_data)
     })
 
 def get_data(filename, dataset_name, mode="sorted"):
@@ -157,10 +154,10 @@ def get_tokenized_data(filename, dataset, tokenizer, col_for_num_labels, remove_
             #prompt += "Answer: The set of annotations from {len(sample[col_for_num_labels][i])} different people is ["
             prompt = 'Multi-label classification results: '+sample['text'][i]
             inputs.append(prompt)
-        tokenized = tokenizer(inputs, truncation=True)
+        tokenized = tokenizer(inputs, truncation=True, padding=True)
         max_source_length = max([len(x) for x in tokenized["input_ids"]])
-        model_inputs = tokenizer(inputs, truncation=True)#, padding=True)
-        labels = tokenizer(sample[target], truncation=True, add_special_tokens=False)
+        model_inputs = tokenizer(inputs, truncation=True, padding=True, max_length=max_source_length)
+        labels = tokenizer(sample[target], truncation=True, padding=True, add_special_tokens=False)
         # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
         # padding in the loss.
         #if padding == "max_length":
@@ -169,8 +166,8 @@ def get_tokenized_data(filename, dataset, tokenizer, col_for_num_labels, remove_
         #    ]
         model_inputs["short_prompt"] = inputs
         model_inputs["labels"] = labels["input_ids"]
-        model_inputs["label"] = labels["input_ids"]
-        model_inputs["label_ids"] = labels["input_ids"]
+        #model_inputs["label"] = labels["input_ids"] #did we need this for mistral
+        #model_inputs["label_ids"] = labels["input_ids"] #same concern as above
         model_inputs["decoder_input_ids"] = model_inputs["input_ids"]
         return model_inputs
     data = get_data(filename, dataset, mode)
