@@ -34,15 +34,16 @@ from numpy.polynomial.polynomial import Polynomial
 from torch.utils.data import DataLoader
 from peft import PeftModel    
 from transformers import (
-        T5ForConditionalGeneration,
-        T5Tokenizer,
-        AutoModelForSeq2SeqLM,
-        AutoTokenizer, 
-        MistralForCausalLM,
-        MistralTokenizer,
-        StoppingCriteria, 
-        StoppingCriteriaList, 
-        TextIteratorStreamer)
+    BitsAndBytesConfig,
+    T5ForConditionalGeneration,
+    T5Tokenizer,
+    AutoModelForSeq2SeqLM,
+    AutoTokenizer, 
+    MistralForCausalLM,
+    StoppingCriteria, 
+    StoppingCriteriaList, 
+    TextIteratorStreamer
+)
 import utils
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -65,7 +66,13 @@ from scipy.stats import rankdata
 # Load the pre-trained model and tokenizer
 #model_name = f"owanr/{dataset_name}-google-t5-v1_1-large-intra_model-sorted"
 model_id = "google/t5-v1_1-large"
-tokenizer = T5Tokenizer.from_pretrained(model_id)
+model_id="mistralai/Mistral-7B-v0.1"
+if "t5" in model_id:
+    tokenizer = T5Tokenizer.from_pretrained(model_id)
+elif "mistral" in model_id:
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer.pad_token = tokenizer.eos_token
+print(tokenizer("1 2 3 4 5"))
 acc = accelerate.Accelerator()
 
 def dataset_hist(cat):
@@ -96,7 +103,7 @@ def clean_row(row, num_labels, num_annots):
     row = random.choices(row, k=num_annots)
     return row
 
-def get_second_order_annots():
+def get_second_order_annots(model_id):
     #for dataset_name in ['SChem5Labels', 'Sentiment', 'ghc', 'SBIC']:
     for dataset_name in ['SChem5Labels']:
         num_annots = utils.get_num_annots(dataset_name)
@@ -104,11 +111,12 @@ def get_second_order_annots():
         my_config = {}
         #my_config['renormalize_logits'] = True
         my_config['return_dict_in_generate'] = True
-        def restrict_decode_vocab(a, b):
-            return [209, 204, 220, 314, 305][:num_labels-1]
-        my_config["prefix_allowed_tokens_fn"] = restrict_decode_vocab #not json serializable
-        my_config['max_new_tokens'] = num_annots
-        my_config['min_new_tokens'] = num_annots
+        #def restrict_decode_vocab(a, b):
+        #    return [28740, 28750, 28770, 28781, 28782][:num_labels-1]
+        #    return [209, 204, 220, 314, 305][:num_labels-1]
+        #my_config["prefix_allowed_tokens_fn"] = restrict_decode_vocab #not json serializable
+        #my_config['max_new_tokens'] = num_annots + 1
+        #my_config['min_new_tokens'] = num_annots + 1 
         #my_config['bos_token_id'] = 0
         # get human labels here
         for cat in ['inter', 'intra']:
@@ -132,23 +140,32 @@ def get_second_order_annots():
                 for target_col in ['human_annots_str', 'model_annots_str']:
                     print(dataset_name, cat, dataset_mode, target_col)
                     memory(target_col + dataset_mode + cat)
-                    hf_model = f"owanr/{dataset_name}-{model_id.replace('/','-')}-{cat}_model-{dataset_mode}-{target_col}"
+                    repository_id = f"{dataset_name}-{model_id.replace('/','-')}-{cat}-{dataset_mode}-{target_col.replace('_annots_str', '')}-pairwise-mse-cycle1"
                     # check if file exsts
-                    title = f'{hf_model.replace("owanr/","")}'
+                    title = f'{repository_id.replace("owanr/","")}'
                     if False and os.path.exists(f"./png/{title}.png"):
-                        print(f"Skipping {hf_model.replace('owanr/','')} since it exists already")
+                        print(f"Skipping {repository_id.replace('owanr/','')} since it exists already")
                         continue
                     try:
-                        #model = T5ForConditionalGeneration.from_pretrained(hf_model)#, device_map="auto", load_in_8bit=True)
-                        model = T5ForConditionalGeneration.from_pretrained(hf_model)#, device_map="auto", load_in_8bit=True)
-                        model.to(acc.device)
-                        self.model = MistralForCausalLM.from_pretrained(
-                    model_name,
-                    quantization_config=bnb_config,
-                    device_map="auto",
-                    trust_remote_code=True)
+                        if "t5" in repository_id:
+                            #model = T5ForConditionalGeneration.from_pretrained(repository_id)#, device_map="auto", load_in_8bit=True)
+                            model = T5ForConditionalGeneration.from_pretrained(repository_id)#, device_map="auto", load_in_8bit=True)
+                        elif "mistral" in repository_id: 
+                            bnb_config = BitsAndBytesConfig(
+                                load_in_4bit=True,
+                                bnb_4bit_quant_type="nf4",
+                                bnb_4bit_compute_dtype=torch.bfloat16,
+                                bnb_4bit_use_double_quant=True,
+                            )
+                            model = MistralForCausalLM.from_pretrained(
+                                "owanr/"+repository_id,
+                                quantization_config=bnb_config,
+                                low_cpu_mem_usage=True,
+                                device_map="auto",
+                            )
+                        #model.to(acc.device)
                     except Exception as e:
-                        print(f"Failed to load {hf_model}")
+                        print(f"Failed to load {repository_id}")
                         print(e)
                         print("")
                         continue
@@ -158,12 +175,14 @@ def get_second_order_annots():
                     texts = test_data['text']
                     for i, text in enumerate(texts):
                         text_input = tokenizer(text, return_tensors="pt", padding=True, truncation=True)
-                        text_input['decoder_input_ids'] = text_input['input_ids'].clone()
+                        if "t5" in repository_id:
+                            text_input['decoder_input_ids'] = text_input['input_ids'].clone()
                         text_input = text_input.to(model.device)
                         with torch.no_grad():
                             text_output = model.generate(**text_input, **my_config)
                         text_output_ids = text_output['sequences'][:, text_input['input_ids'].shape[-1]:]
                         answer = tokenizer.decode(text_output_ids[0], skip_special_tokens=True)
+                        print("ANSWER========", answer)
                         answer = [int(x) for x in list(answer.replace('nan','').replace('.','').replace(' ',''))]
                         if i == random.randint(0, 50):
                             print('-->', dataset_mode, target_col, text, 'model: ', answer, 'human', test_data['human_annots'][i], 'model', test_data['model_annots'][i])
@@ -322,5 +341,5 @@ def analyze_second_order_annots():
                 #visualize.create_hist_from_lst(annots, num_labels=num_labels, title=title)
             '''
 
-get_second_order_annots()
+get_second_order_annots(model_id)
 #analyze_second_order_annots()

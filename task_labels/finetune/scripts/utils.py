@@ -3,9 +3,9 @@ import pandas as pd
 pd.options.mode.chained_assignment = None  # default='warn'
 from datasets import Dataset, DatasetDict
 from torch.utils.data import DataLoader
+import torch
 from accelerate import Accelerator
 accelerator = Accelerator()
-import nltk 
 import random
 from collections import Counter
 BATCH_SIZE = -1
@@ -16,7 +16,7 @@ def get_batch_size(dataset_name):
     if dataset_name in ['SChem5Labels', 'Sentiment']:
         BATCH_SIZE = 32
     elif dataset_name in ['SBIC', 'ghc']:
-        BATCH_SIZE = 8
+        BATCH_SIZE = 32
     else:
         raise Exception("dataset_name not supported or not entered")
     return BATCH_SIZE
@@ -47,7 +47,70 @@ def get_num_labels(dataset_name):
     else:
         raise Exception("dataset_name not supported or not entered")
     # plus 1 for the "other" labels
-    return num_labels + 1
+    return num_labels# + 1
+
+def str_to_lst(x):
+    # assume string that looks like list of numbers e.g. "[1, 2, 3]"
+    return x[1:-1].replace(" ", "").replace("nan", "").replace(".", "").replace("'", "").replace('"', "")
+
+def format_dataset_roberta(filename, dataset_name, mode="sorted"):
+    np.random.seed(RANDOM_SEED)
+    num_annots = get_num_annots(dataset_name)
+    df = pd.read_csv(filename)
+    df = df[df['dataset_name'] == dataset_name]
+    df.reset_index(inplace=True)
+    # since nans are already removed here (still checking below just in case), we may have lists that are shorter than expected
+
+    # random sample here so the new ordering gets reflected in the ordering
+    for col in ['human_annots', 'model_annots']:
+        for i in range(df[col].shape[0]):
+            if len(df[col][i]) > num_annots:
+                df[col][i] = str_to_lst(df[col][i])
+                idx = random.sample(range(len(df[col][i])), k=num_annots)
+                df[col][i] = [x for i, x in enumerate(df[col][i]) if i in idx]
+
+    if mode == "sorted":
+        for col in ['human_annots', 'model_annots']:
+            #df[col] = df[col].apply(lambda x: sorted([i if i != 'nan' else -1 for i in np.fromstring(x[1:-1].replace('.',''), dtype=int, sep=' ')]))
+            df[col] = df[col].apply(lambda x: sorted([int(el) for el in x]))
+    elif "dataset-frequency" in mode:# [frequency, reverse_frequency]
+        for col in ['human_annots', 'model_annots']:
+            all_annots = [str_to_lst(row) for row in df[col]]
+            all_annots = ''.join(all_annots)
+            all_annots = [annot for annot in all_annots]
+            freq_dict = dict(Counter(all_annots))
+            freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="dataset-frequency")))
+            for i in range(df[col].shape[0]):
+                this_str = df[col][i][1:-1].replace(" ", "").replace("nan", "").replace(".", "")
+                # adding 1 of each label so it shows up in final string - won't mess up frequency order
+                #this_str += ''.join([str(num) for num in range(get_num_labels(dataset_name))])
+                row_freq_dict = dict(Counter([el for el in this_str]))
+                #row_freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
+                #print("row_freq_dict", row_freq_dict)
+                new_str = ''.join([str(k)*row_freq_dict.get(k, 0) for k in freq_dict.keys()])
+                df[col][i] = [int(el) for el in new_str]
+    elif "frequency" in mode:# [frequency, reverse_frequency]
+        for col in ['human_annots', 'model_annots']:
+            for i in range(df[col].shape[0]):
+                this_str = (df[col][i])
+                # adding 1 of each label so it shows up in final string - won't mess up frequency order
+                #this_str += ''.join([str(num) for num in range(get_num_labels(dataset_name))])
+                freq_dict = dict(Counter([row for row in this_str]))
+                freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
+                new_str = ''.join([str(k)*freq_dict[k] for k in freq_dict.keys()])
+                df[col][i] = [int(el) for el in new_str]
+    elif mode == "shuffle":
+        for col in ['human_annots', 'model_annots']:
+            for i in range(df[col].shape[0]):
+                x = str_to_lst(df[col][i])
+                random.shuffle(x)
+
+    # pad/truncate here since we always want the padding to come at the end
+    for col in ['human_annots', 'model_annots']:
+        for i in range(df[col].shape[0]):
+            if len(df[col][i]) < num_annots:
+                df[col][i] += [-1]*(num_annots - len(df[col][i]))
+    return df
 
 def format_dataset(filename, dataset_name, mode="sorted"):
     np.random.seed(RANDOM_SEED)
@@ -71,8 +134,6 @@ def format_dataset(filename, dataset_name, mode="sorted"):
                 # adding 1 of each label so it shows up in final string - won't mess up frequency order
                 #this_str += ''.join([str(num) for num in range(get_num_labels(dataset_name))])
                 row_freq_dict = dict(Counter([el for el in this_str]))
-                #print("THIS STR", this_str)
-                #print("freq_dict", freq_dict)
                 #row_freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
                 #print("row_freq_dict", row_freq_dict)
                 new_str = ''.join([str(k)*row_freq_dict.get(k, 0) for k in freq_dict.keys()])
@@ -106,7 +167,7 @@ def format_dataset(filename, dataset_name, mode="sorted"):
 
 def split(df, suffix=''):
     # count rows in each df
-    testing = False 
+    testing = False
     if testing:
         train_data = df.sample(frac=0.01, random_state=RANDOM_SEED*3)
         val_data = train_data
@@ -127,12 +188,15 @@ def split(df, suffix=''):
     return DatasetDict({
         "train": Dataset.from_pandas(train_data),
         "val": Dataset.from_pandas(val_data),
-        #"test": Dataset.from_pandas(test_data)
+        "test": Dataset.from_pandas(test_data)
     })
 
-def get_data(filename, dataset_name, mode="sorted"):
+def get_data(filename, dataset_name, mode="sorted", model_id="roberta-base"):
     # returns DatasetDict with train, val, test
-    model_df = format_dataset(filename, dataset_name, mode)
+    if model_id == "roberta-base":
+        model_df = format_dataset_roberta(filename, dataset_name, mode)
+    else:
+        model_df = format_dataset(filename, dataset_name, mode)
     dataset = split(model_df, dataset_name)
     #print(f"Train dataset size: {len(intra_dataset['train'])}")
     #print(f"Test dataset size: {len(inter_dataset['test'])}")
@@ -144,42 +208,61 @@ def get_dataloader(filename):
     dataloader = DataLoader(data, batch_size=BATCH_SIZE, shuffle=False, worker_init_fn = seed_init_fn)
     return dataloader
 
-def get_tokenized_data(filename, dataset, tokenizer, col_for_num_labels, remove_columns, mode="sorted", target_col="model_annots_str"):
+def get_tokenized_data(filename, dataset, tokenizer, col_for_num_labels, remove_columns, mode="sorted", target_col="model_annots_str", model_id="roberta-base"):
+    num_labels = get_num_labels(dataset) # -1 for the extra "other" label
+    num_annots = get_num_annots(dataset)
     def preprocess_function(sample, target=target_col):
     #def preprocess_function(sample, padding="max_length", target="model_annots_str", max_target_length=32):
-        inputs = []
-        for i in range(len(sample[col_for_num_labels])):
-            #prompt = f"##### Predict a set of annotations from {len(sample[col_for_num_labels][i])} different people #####\n" 
-            #prompt += sample['short_prompt'][i]
-            #prompt += "Answer: The set of annotations from {len(sample[col_for_num_labels][i])} different people is ["
-            prompt = 'Multi-label classification results: '+sample['text'][i]
-            inputs.append(prompt)
+        if model_id != "roberta-base":
+            inputs = []
+            for i in range(len(sample[col_for_num_labels])):
+                #prompt = f"##### Predict a set of annotations from {len(sample[col_for_num_labels][i])} different people #####\n" 
+                #prompt += sample['short_prompt'][i]
+                #prompt += "Answer: The set of annotations from {len(sample[col_for_num_labels][i])} different people is ["
+                prompt = 'Multi-label classification results: '+sample['text'][i]
+                inputs.append(prompt)
+            model_inputs["short_prompt"] = inputs
+        else:
+            inputs = sample['text']
         tokenized = tokenizer(inputs, truncation=True, padding=True)
         max_source_length = max([len(x) for x in tokenized["input_ids"]])
         model_inputs = tokenizer(inputs, truncation=True, padding=True, max_length=max_source_length)
-        labels = tokenizer(sample[target], truncation=True, padding=True, add_special_tokens=False)
-        # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
-        # padding in the loss.
-        #if padding == "max_length":
-        #    labels["input_ids"] = [
-        #        [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
-        #    ]
-        model_inputs["short_prompt"] = inputs
-        model_inputs["labels"] = labels["input_ids"]
+        if model_id == "roberta-base":
+            # convert all missing/invalid values to -1 here
+            model_inputs['labels'] = sample[target]
+            for row_i in range(len(sample[target])):
+                for annot_i in range(len(sample[target][row_i])):
+                    if not (0 <= sample[target][row_i][annot_i] and sample[target][row_i][annot_i] < num_labels):
+                        model_inputs['labels'][row_i][annot_i] = -1
+                model_inputs['labels'][row_i] += [-1]*(num_annots - len(model_inputs['labels'][row_i]))
+                    #else:
+                    #    model_inputs[row_i][annot_i] = int(sample[target][row_i][annot_i])
+            #raise Exception("roberta-base not supported yet")
+            #model_inputs['labels'] = [(el if (0 <= el and el < num_labels) else -1 for el in sample[target]]
+            #model_inputs['labels'] += [-1]*(num_annots - len(model_inputs['labels']))
+        else:
+            labels = tokenizer(sample[target], truncation=True, padding=True, add_special_tokens=False)
+            model_inputs["labels"] = labels["input_ids"]
         #model_inputs["label"] = labels["input_ids"] #did we need this for mistral
         #model_inputs["label_ids"] = labels["input_ids"] #same concern as above
-        model_inputs["decoder_input_ids"] = model_inputs["input_ids"]
+        if 't5' in model_id:
+            model_inputs["decoder_input_ids"] = model_inputs["input_ids"]
+        for key in model_inputs:
+            model_inputs[key] = torch.tensor(model_inputs[key]).to(accelerator.device)
         return model_inputs
-    data = get_data(filename, dataset, mode)
+    data = get_data(filename, dataset, mode, model_id)
     # TODO: maybe pass in columns to remove
     tokenized_data = data.map(
             preprocess_function, 
             batched=True, 
             batch_size=BATCH_SIZE,
-            num_proc=accelerator.num_processes, remove_columns=remove_columns)
+            remove_columns=remove_columns,
+            )#num_proc=accelerator.num_processes, )
     return tokenized_data
 
-def compute_metrics(eval_preds, tokenizer):
+def compute_metricsssss(eval_preds, tokenizer):
+    raise Exception("compute_metrics not being used----------------------")
+    import nltk 
     preds, labels = eval_preds
     if isinstance(preds, tuple):
         preds = preds[0]
