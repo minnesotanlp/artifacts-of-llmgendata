@@ -34,13 +34,16 @@ from numpy.polynomial.polynomial import Polynomial
 from torch.utils.data import DataLoader
 from peft import PeftModel    
 from transformers import (
-        T5ForConditionalGeneration,
-        T5Tokenizer,
-        AutoModelForSeq2SeqLM,
-        AutoTokenizer, 
-        StoppingCriteria, 
-        StoppingCriteriaList, 
-        TextIteratorStreamer)
+    BitsAndBytesConfig,
+    T5ForConditionalGeneration,
+    T5Tokenizer,
+    AutoModelForSeq2SeqLM,
+    AutoTokenizer, 
+    MistralForCausalLM,
+    StoppingCriteria, 
+    StoppingCriteriaList, 
+    TextIteratorStreamer
+)
 import utils
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -62,8 +65,14 @@ from scipy.stats import rankdata
 
 # Load the pre-trained model and tokenizer
 #model_name = f"owanr/{dataset_name}-google-t5-v1_1-large-intra_model-sorted"
-model_id = "google/t5-v1_1-xl"
-tokenizer = T5Tokenizer.from_pretrained(model_id)
+model_id = "google/t5-v1_1-large"
+model_id="mistralai/Mistral-7B-v0.1"
+if "t5" in model_id:
+    tokenizer = T5Tokenizer.from_pretrained(model_id)
+elif "mistral" in model_id:
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer.pad_token = tokenizer.eos_token
+print(tokenizer("1 2 3 4 5"))
 acc = accelerate.Accelerator()
 
 def dataset_hist(cat):
@@ -94,21 +103,21 @@ def clean_row(row, num_labels, num_annots):
     row = random.choices(row, k=num_annots)
     return row
 
-def get_second_order_annots():
-    for dataset_name in ['SChem5Labels', 'Sentiment']:#, 'ghc', 'SBIC']:
-    #for dataset_name in ['ghc']:
+def get_second_order_annots(model_id):
+    #for dataset_name in ['SChem5Labels', 'Sentiment', 'ghc', 'SBIC']:
+    for dataset_name in ['SChem5Labels']:
         num_annots = utils.get_num_annots(dataset_name)
         num_labels = utils.get_num_labels(dataset_name)
         my_config = {}
         my_config['renormalize_logits'] = True
         my_config['return_dict_in_generate'] = True
-        def restrict_decode_vocab(a, b):
-            return [209, 204, 220, 314, 305][:num_labels-1]
-        my_config["prefix_allowed_tokens_fn"] = restrict_decode_vocab #not json serializable
-        my_config['max_new_tokens'] = 10
-        my_config['min_new_tokens'] = num_annots
+        #def restrict_decode_vocab(a, b):
+        #    return [28740, 28750, 28770, 28781, 28782][:num_labels-1]
+        #    return [209, 204, 220, 314, 305][:num_labels-1]
+        #my_config["prefix_allowed_tokens_fn"] = restrict_decode_vocab #not json serializable
+        #my_config['max_new_tokens'] = num_annots + 1
+        #my_config['min_new_tokens'] = num_annots + 1 
         #my_config['bos_token_id'] = 0
-
         # get human labels here
         for cat in ['inter', 'intra']:
             # load pkl file
@@ -134,15 +143,30 @@ def get_second_order_annots():
                     memory(target_col + dataset_mode + cat)
                     hf_model = f"owanr/{dataset_name}-{model_id.replace('/','-')}-{cat}-{dataset_mode}-{target_col.replace('_annots_str','')}-cross-ent"
                     # check if file exsts
-                    title = f'{hf_model.replace("owanr/","")}'
+                    title = f'{repository_id.replace("owanr/","")}'
                     if False and os.path.exists(f"./png/{title}.png"):
-                        print(f"Skipping {hf_model.replace('owanr/','')} since it exists already")
+                        print(f"Skipping {repository_id.replace('owanr/','')} since it exists already")
                         continue
                     try:
-                        model = T5ForConditionalGeneration.from_pretrained(hf_model)#, device_map="auto", load_in_8bit=True)
-                        model.to(acc.device)
+                        if "t5" in repository_id:
+                            #model = T5ForConditionalGeneration.from_pretrained(repository_id)#, device_map="auto", load_in_8bit=True)
+                            model = T5ForConditionalGeneration.from_pretrained(repository_id)#, device_map="auto", load_in_8bit=True)
+                        elif "mistral" in repository_id: 
+                            bnb_config = BitsAndBytesConfig(
+                                load_in_4bit=True,
+                                bnb_4bit_quant_type="nf4",
+                                bnb_4bit_compute_dtype=torch.bfloat16,
+                                bnb_4bit_use_double_quant=True,
+                            )
+                            model = MistralForCausalLM.from_pretrained(
+                                "owanr/"+repository_id,
+                                quantization_config=bnb_config,
+                                low_cpu_mem_usage=True,
+                                device_map="auto",
+                            )
+                        #model.to(acc.device)
                     except Exception as e:
-                        print(f"Failed to load {hf_model}")
+                        print(f"Failed to load {repository_id}")
                         print(e)
                         print("")
                         continue
@@ -150,16 +174,22 @@ def get_second_order_annots():
                     with open(f'../data/test_data_{cat}_{dataset_name}.pkl', 'rb') as f:
                         test_data = pickle.load(f)
                     texts = test_data['text']
-                    for text in texts:
+                    for i, text in enumerate(texts):
                         text_input = tokenizer(text, return_tensors="pt", padding=True, truncation=True)
-                        text_input['decoder_input_ids'] = text_input['input_ids'].clone()
+                        if "t5" in repository_id:
+                            text_input['decoder_input_ids'] = text_input['input_ids'].clone()
                         text_input = text_input.to(model.device)
                         with torch.no_grad():
                             text_output = model.generate(**text_input, **my_config)
                         text_output_ids = text_output['sequences'][:, text_input['input_ids'].shape[-1]:]
                         answer = tokenizer.decode(text_output_ids[0], skip_special_tokens=True)
+                        print("ANSWER========", answer)
                         answer = [int(x) for x in list(answer.replace('nan','').replace('.','').replace(' ',''))]
+                        if i == random.randint(0, 50):
+                            print('-->', dataset_mode, target_col, text, 'model: ', answer, 'human', test_data['human_annots'][i], 'model', test_data['model_annots'][i])
+                            
                         annots += answer
+                    continue
                     '''
                     inputs = tokenizer.batch_encode_plus(texts, return_tensors="pt", padding=True, truncation=True)
                     inputs['decoder_input_ids'] = inputs['input_ids'].clone()
@@ -186,11 +216,11 @@ def get_second_order_annots():
                     print(f"Predicted: {predicted_array}")
                     print(f"Gold: {gold_array}")
                     try:
-                        kendall_tau, _ = kendalltau(predicted_array, gold_array)
+                        kendall_tau, _ = round(kendalltau(predicted_array, gold_array), 3)
                         print(f"Kendall's Tau: {kendall_tau}")
 
                         # Calculate Spearman's Rank Correlation
-                        spearman_corr, _ = spearmanr(predicted_array, gold_array)
+                        spearman_corr, _ = round(spearmanr(predicted_array, gold_array), 3)
                         print(f"Spearman's Rank Correlation: {spearman_corr}")
                     except Exception as e:
                         print(e)
@@ -224,39 +254,43 @@ def analyze_second_order_annots(plot_type='hist'):
 
             # Latex table
             print(f'{dataset_name} {dataset_mode}***')
-            print('\\begin\\{table\\}[h]\\n')
-            print('\\begin\\{tabular\\}\\{|l|l|l|l|l|\\}\\n')
-            print('\\hline\\n')
-            print('& \\multicolumn\\{2\\}\\{|c|\\}\\{\\{\\textbf\\{Inter\\}\\}\\} & \\multicolumn\\{2\\}\\{|c|\\}\\{\\{\\textbf\\{Intra\\}\\}\\} \\\\\\n')
-            print('& \\textbf\\{Human\\} & \\textbf\\{Model\\} & \\textbf\\{Human\\} & \\textbf\\{Model\\} \\\\\\n')
-            print('\\hline\\n')
+            print('\\begin{table}[h]')
+            print('\\begin{tabular}{|l|l|l|l|l|}')
+            print('\\hline\\\\')
+            print('& \\multicolumn{2}{|c|}{{\\textbf{Inter}}} & \\multicolumn{2}{|c|}{{\\textbf{Intra}}} \\\\')
+            print('& \\textbf{Human} & \\textbf{Model} & \\textbf{Human} & \\textbf{Model} \\\\')
+            print('\\hline\\\\')
             temp = {}
             for ci, cat in enumerate(['inter', 'intra']):
                 # first check both files exist
+                temp[cat] = {"human_annots_str": {}, "model_annots_str": {}}
                 if not os.path.exists(f'old/{dataset_name}_{cat}_{dataset_mode}_human_annots_str.pkl') or not os.path.exists(f'old/{dataset_name}_{cat}_{dataset_mode}_model_annots_str.pkl'):
                     print(f"Skipping {dataset_name}_{cat}_{dataset_mode} since it's missing files")
-                    continue
-                temp[cat] = {"human_annots_str": {}, "model_annots_str": {}}
-                for ti, target_col in enumerate(['human_annots_str', 'model_annots_str']):
-                    title_pref = f'{dataset_name}_{cat}_{dataset_mode}_{target_col}'
-                    #with open(f'old/{title_pref}.pkl', 'rb') as f:
-                    with open(f'{title_pref}.pkl', 'rb') as f:
-                        # when kendall_tau and spearman_corr are nan, it means the annots are all the same for one or both
-                        # TODO: MAKE SURE THERE ARE NO INVALID ANNOTATIONS
-                        content = pickle.load(f)
-                        print(len(content), "-------------------")
-                        gold_array, predicted_array, kendall_tau, spearman_corr = pickle.load(f)
-                    # 1d because the ideal line is 1d
-                    corr2 = Polynomial.fit(gold_array, predicted_array, 1)
-                    temp[cat][target_col]['Slope'] = corr2.convert().coef[1]
-                    temp[cat][target_col]['Intercept'] = corr2.convert().coef[0]
-                    temp[cat][target_col]['Kendall'] = kendall_tau
-                    temp[cat][target_col]['Spearman'] = spearman_corr
-            #for row_header in ['Slope', 'Intercept', 'Kendall', 'Spearman']:
-            #    print(f'{row_header} & {temp["inter"]["human_annots_str"][row_header]:.3f} & {temp["inter"]["model_annots_str"][row_header]:.3f} & {temp["intra"]["human_annots_str"][row_header]:.3f} & {temp["intra"]["model_annots_str"][row_header]:.3f} \\\\\n')
-            print('\\hline\\n')
-            print('\\end{tabular}\\n')
-            print('\\end{table}\\n\\n')
+                    for ti, target_col in enumerate(['human_annots_str', 'model_annots_str']):
+                        temp[cat][target_col]['Slope'] = 0
+                        temp[cat][target_col]['Intercept'] = 0 
+                        temp[cat][target_col]['Kendall'] = 0
+                        temp[cat][target_col]['Spearman'] = 0
+                else:
+                    for ti, target_col in enumerate(['human_annots_str', 'model_annots_str']):
+                        title_pref = f'{dataset_name}_{cat}_{dataset_mode}_{target_col}'
+                        with open(f'old/{title_pref}.pkl', 'rb') as f:
+                            # when kendall_tau and spearman_corr are nan, it means the annots are all the same for one or both
+                            # TODO: MAKE SURE THERE ARE NO INVALID ANNOTATIONS
+                            gold_array, predicted_array, kendall_tau, spearman_corr = pickle.load(f)
+                        # 1d because the ideal line is 1d
+                        corr2 = Polynomial.fit(gold_array, predicted_array, 1)
+                        temp[cat][target_col]['Slope'] = corr2.convert().coef[1]
+                        temp[cat][target_col]['Intercept'] = corr2.convert().coef[0]
+                        temp[cat][target_col]['Kendall'] = kendall_tau
+                        temp[cat][target_col]['Spearman'] = spearman_corr
+            for row_header in ['Slope', 'Intercept', 'Kendall', 'Spearman']:
+                print(f'{row_header} & {temp["inter"]["human_annots_str"][row_header]:.3f} & {temp["inter"]["model_annots_str"][row_header]:.3f} & {temp["intra"]["human_annots_str"][row_header]:.3f} & {temp["intra"]["model_annots_str"][row_header]:.3f} \\\\')
+            print('\\hline\\\\')
+            print('\\end{tabular}\\\\')
+            print('\\end{table}\\\\')
+
+            continue
 
             if plot_type == 'hist':
                 # distribution comparison
@@ -338,5 +372,5 @@ def analyze_second_order_annots(plot_type='hist'):
                 #visualize.create_hist_from_lst(annots, num_labels=num_labels, title=title)
             '''
 
-#get_second_order_annots()
-analyze_second_order_annots('hist')
+get_second_order_annots(model_id)
+#analyze_second_order_annots()
