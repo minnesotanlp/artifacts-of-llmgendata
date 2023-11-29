@@ -64,8 +64,8 @@ def format_dataset_roberta(filename, dataset_name, mode="sorted"):
     # random sample here so the new ordering gets reflected in the ordering
     for col in ['human_annots', 'model_annots']:
         for i in range(df[col].shape[0]):
+            df[col][i] = str_to_lst(df[col][i])
             if len(df[col][i]) > num_annots:
-                df[col][i] = str_to_lst(df[col][i])
                 idx = random.sample(range(len(df[col][i])), k=num_annots)
                 df[col][i] = [x for i, x in enumerate(df[col][i]) if i in idx]
 

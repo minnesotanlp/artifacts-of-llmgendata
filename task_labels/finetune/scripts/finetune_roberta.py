@@ -29,6 +29,7 @@ from transformers import (
     Trainer, TrainingArguments, Seq2SeqTrainer, Seq2SeqTrainingArguments,
     BitsAndBytesConfig,
     )
+import pickle
 from deepspeed.runtime.utils import see_memory_usage
 #from peft import get_peft_model, LoraConfig, TaskType, prepare_model_for_kbit_training
 import math
@@ -43,7 +44,7 @@ import utils
 # Data collator
 BATCH_SIZE = -1
 LR = 1e-4
-NUM_CYCLES = 3
+NUM_CYCLES = 2
 #from typing import List, Optional, Tuple, Union
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 loss_fct = CrossEntropyLoss(ignore_index=-1)
@@ -132,14 +133,14 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     #tokenized_dataset["val"] = tokenized_dataset["val"].select(range(min(100, len(tokenized_dataset["val"]))))
     #tokenized_dataset["test"] = tokenized_dataset["test"].select(range(min(100, len(tokenized_dataset["test"]))))
 
-    loss_type = "mse"
     if 'intra' in filename: 
         # for the non-batch size stuff, we used a batch size of 5000, which worked horribly for the bigger models
-        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra-{dataset_mode}-{target_col.replace('_annots_str', '')}-cross-ent-batch-size"
+        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra-{dataset_mode}-{target_col.replace('_annots_str', '')}-cross-ent"
     else:
-        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter-{dataset_mode}-{target_col.replace('_annots_str', '')}-cross-ent-batch-size"
+        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter-{dataset_mode}-{target_col.replace('_annots_str', '')}-cross-ent"
 
     early_stopping = EarlyStoppingCallback(early_stopping_patience=3)
+
     training_args = TrainingArguments(
         output_dir=repository_id,
         per_device_train_batch_size=BATCH_SIZE,
@@ -153,13 +154,13 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         logging_dir=f"{repository_id}/logs",
         logging_strategy="steps",
         logging_steps=1,
-        evaluation_strategy="epoch",
-        save_steps=100,
+        evaluation_strategy="steps",
+        #save_steps=100,
         num_train_epochs=50,
-        save_strategy="epoch",
+        save_strategy="steps",
         save_total_limit=2,
         load_best_model_at_end=True,
-        metric_for_best_model="loss",
+        metric_for_best_model="eval_loss",
         greater_is_better=False,
         report_to="wandb",
         push_to_hub=True,
@@ -167,9 +168,6 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         hub_strategy="every_save",
         hub_model_id=repository_id,
         hub_token=HfFolder.get_token(),
-        do_train=True,
-        do_eval=True,
-        do_predict=True,
         remove_unused_columns = False,#"Mistral" in self.model_name,
         #compute_loss=compute_metrics,
         #generation_config=generation_config,
@@ -189,6 +187,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     #    #collate_fn=custom_collate_fn,  # Replace with your collate function if neede
     #)
     def compute_metrics(p):
+        pass
         '''
         # p is a tuple containing predictions for each task
         predictions1, predictions2 = p.predictions
@@ -223,8 +222,8 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     print("NUM TRAINING STEPS", num_training_steps)
     #optimizer = Adafactor(self.model.parameters(), relative_step=False, warmup_init=False, lr=LR)
     num_warmup_steps = num_training_steps * 0.1
-    scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, NUM_CYCLES)
-
+    #scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, NUM_CYCLES)
+    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps)
 
     trainer = CustomTrainer(
         model=model,
@@ -238,21 +237,41 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     )
 
     trainer.train()
-    print("-------EVALUTE-----------")
-    print(trainer.evaluate(eval_dataset=tokenized_dataset["test"]))
-    print("-------PREDICT-----------")
-    p = trainer.predict(tokenized_dataset["test"])
-    print(p)
-    p = p[0]
-    print(len(p['predictions']), len(p['predictions'][0]))
-    print(len(p['label_ids']), len(p['label_ids'][0]))
-    
 
-    trainer.save_model(f'{repository_id}.pt')
+    model.save_pretrained(f'{repository_id}.pt') 
     tokenizer.save_pretrained(f'{repository_id}.pt')
     trainer.create_model_card()
     trainer.push_to_hub()
 
+
+    print(tokenized_dataset["test"])
+    print("-------EVALUTE-----------")
+    #print(trainer.evaluate(eval_dataset=tokenized_dataset["test"]))
+    #print("-------PREDICT-----------")
+    p = trainer.predict(tokenized_dataset["test"])
+
+    pkl_filename = "test.pkl"
+
+    with open(pkl_filename, 'wb') as f:
+        pickle.dump(p[1], f)
+    #print(len(p['predictions']), len(p['predictions'][0]))
+    #print(len(p['label_ids']), len(p['label_ids'][0]))
+    with open(pkl_filename, 'rb') as f:
+        p = pickle.load(f)
+
+    correct = 0
+    total = 0
+    print('total', len(p)*len(p[0]))
+    for inst in range(len(p)):
+        for annot in range(len(p[inst])):
+            total += 1
+            if p[inst][annot] == tokenized_dataset["test"]["labels"][inst][annot]:
+                correct += 1
+            #print(p[inst][annot], tokenized_dataset["test"]["labels"][inst][annot])
+
+    print('correct', correct)
+    print('total', total)
+    print('accuracy', correct/total)
     '''
     # Example data (you would replace these with your own datasets)
     input_ids = torch.tensor([[1, 2, 3, 4, 5]])
@@ -328,13 +347,9 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     #    eval_dataset=tokenized_dataset["test"],
     #    #metric_key_prefix=""
     #)
-    model.model.save_pretrained(f'{repository_id}.pt') 
-    model.tokenizer.save_pretrained(f'{repository_id}.pt')
-    model.trainer.create_model_card()
-    model.trainer.push_to_hub()
     #'''
-model_id = "roberta-base"
-for dn in ['ghc']:
+model_id = "roberta-large"
+for dn in ['SChem5Labels', 'Sentiment', 'SBIC']:
     #for m in ['frequency', 'dataset-frequency']:
     for m in ['sorted']:
     #for m in ['dataset-frequency']:
@@ -345,7 +360,6 @@ for dn in ['ghc']:
              col_for_num_labels = "model_annots",
              target_col='model_annots',
              dataset_mode = m)
-        '''
         main(filename = '../data/intermodel_data.csv', 
              model_id = model_id,
              dataset_name = dn,
@@ -367,4 +381,3 @@ for dn in ['ghc']:
              col_for_num_labels = "human_annots",
              dataset_mode = m,
              target_col = "human_annots")
-        '''
