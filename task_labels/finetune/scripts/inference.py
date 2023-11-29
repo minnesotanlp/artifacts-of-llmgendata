@@ -109,7 +109,7 @@ def get_second_order_annots(model_id):
         num_annots = utils.get_num_annots(dataset_name)
         num_labels = utils.get_num_labels(dataset_name)
         my_config = {}
-        #my_config['renormalize_logits'] = True
+        my_config['renormalize_logits'] = True
         my_config['return_dict_in_generate'] = True
         #def restrict_decode_vocab(a, b):
         #    return [28740, 28750, 28770, 28781, 28782][:num_labels-1]
@@ -136,11 +136,12 @@ def get_second_order_annots(model_id):
                 model_annots += clean_row(ma, num_labels, num_annots)
             #for dataset_mode in ['sorted', 'shuffle', 'dataset-frequency', 'frequency']:
             # TODO: get human labels here
-            for dataset_mode in ['dataset-frequency', 'frequency']:
+            #for dataset_mode in ['dataset-frequency', 'frequency']:
+            for dataset_mode in ['frequency']:
                 for target_col in ['human_annots_str', 'model_annots_str']:
                     print(dataset_name, cat, dataset_mode, target_col)
                     memory(target_col + dataset_mode + cat)
-                    repository_id = f"{dataset_name}-{model_id.replace('/','-')}-{cat}-{dataset_mode}-{target_col.replace('_annots_str', '')}-pairwise-mse-cycle1"
+                    hf_model = f"owanr/{dataset_name}-{model_id.replace('/','-')}-{cat}-{dataset_mode}-{target_col.replace('_annots_str','')}-cross-ent"
                     # check if file exsts
                     title = f'{repository_id.replace("owanr/","")}'
                     if False and os.path.exists(f"./png/{title}.png"):
@@ -212,6 +213,8 @@ def get_second_order_annots(model_id):
                     predicted_array = np.array(annots)
                     gold_array = np.array(human_annots) if target_col == 'human_annots_str' else np.array(model_annots)
                     # Calculate Kendall's Tau
+                    print(f"Predicted: {predicted_array}")
+                    print(f"Gold: {gold_array}")
                     try:
                         kendall_tau, _ = round(kendalltau(predicted_array, gold_array), 3)
                         print(f"Kendall's Tau: {kendall_tau}")
@@ -222,12 +225,12 @@ def get_second_order_annots(model_id):
                     except Exception as e:
                         print(e)
                         print("")
-                        continue
                     
                     title_pref = f'{dataset_name}_{cat}_{dataset_mode}_{target_col}'
 
                     with open(f'{title_pref}.pkl', 'wb') as f:
-                        pickle.dump((gold_array, predicted_array, kendall_tau, spearman_corr), f)
+                        pickle.dump((gold_array, predicted_array), f)
+                        #pickle.dump((gold_array, predicted_array, kendall_tau, spearman_corr), f)
                     #with open(f'{title_pref}.pkl', 'rb') as f:
                     #    gold_array, predicted_array, kendall_tau, spearman_corr = pickle.load(f)
 
@@ -242,7 +245,7 @@ colors = {
         'human_annots_str': 'orange',
         'model_annots_str': 'green'
     }}
-def analyze_second_order_annots():
+def analyze_second_order_annots(plot_type='hist'):
     for dataset_name in ['SChem5Labels', 'Sentiment', 'ghc', 'SBIC']:
         num_annots = utils.get_num_annots(dataset_name)
         num_labels = utils.get_num_labels(dataset_name)
@@ -289,30 +292,58 @@ def analyze_second_order_annots():
 
             continue
 
-
             if plot_type == 'hist':
-                plt.figure(figsize=(8, 6))
                 # distribution comparison
                 for ci, cat in enumerate(['inter', 'intra']):
+                    ax = plt.figure(figsize=(8, 6))
                     # first check both files exist
-                    if not os.path.exists(f'old/{dataset_name}_{cat}_{dataset_mode}_human_annots_str.pkl') or not os.path.exists(f'old/{dataset_name}_{cat}_{dataset_mode}_model_annots_str.pkl'):
+                    #if not os.path.exists(f'old/{dataset_name}_{cat}_{dataset_mode}_human_annots_str.pkl') or not os.path.exists(f'old/{dataset_name}_{cat}_{dataset_mode}_model_annots_str.pkl'):
+                    if not os.path.exists(f'{dataset_name}_{cat}_{dataset_mode}_human_annots_str.pkl') or not os.path.exists(f'{dataset_name}_{cat}_{dataset_mode}_model_annots_str.pkl'):
                         print(f"Skipping {dataset_name}_{cat}_{dataset_mode} since it's missing files")
                         continue
                     for ti, target_col in enumerate(['human_annots_str', 'model_annots_str']):
                         title_pref = f'{dataset_name}_{cat}_{dataset_mode}_{target_col}'
-                        with open(f'old/{title_pref}.pkl', 'rb') as f:
+                        with open(f'{title_pref}.pkl', 'rb') as f:
                             # when kendall_tau and spearman_corr are nan, it means the annots are all the same for one or both
-                            gold_array, predicted_array, kendall_tau, spearman_corr = pickle.load(f)
+                            content = pickle.load(f)
+                            if len(content) == 2:
+                                gold_array, predicted_array = content
+                            else:
+                                gold_array, predicted_array, kendall_tau, spearman_corr = pickle.load(f)
 
-                        sns.histplot([gold_array, predicted_array], kde=True, bins=2, color=['blue', 'orange'], label=['Gold Labels', 'Predicted Labels'])
-                        plt.xlabel('Labels')
-                        plt.ylabel('Frequency')
-                        plt.yticks([0,1])
+                        print(f"Gold: {gold_array}", len(gold_array), gold_array[:10])
+                        print(f"Predicted: {predicted_array}", len(predicted_array), gold_array[:10])
 
-                        # Add a legend
-                        plt.legend()
-                plt.savefig(f'png/delete_{title_pref}_DistributionComparison.png')
-            plt.close()
+
+                        # Create histograms for each sequence
+                        hist1, bins = np.histogram(gold_array, bins=range(utils.get_num_labels(dataset_name)), density=True)
+                        hist2, _ = np.histogram(predicted_array, bins=range(utils.get_num_labels(dataset_name)), density=True)
+
+                        # Plotting
+                        width = 0.35  # the width of the bars
+                        fig, ax = plt.subplots()
+                        rects1 = ax.bar(np.array(bins[:-1]), hist1, width, label='Gold')
+                        rects2 = ax.bar(np.array(bins[:-1]) + width, hist2, width, label='Predicted')
+
+                        # Add some text for labels, title, and legend
+                        ax.set_xlabel('Labels')
+                        ax.set_ylabel('Frequency')
+                        ax.set_title('Distribution of Sequences for'+dataset_name)
+                        ax.set_xticks(np.array(bins[:-1]) + width / 2)
+                        ax.set_xticklabels([str(i) for i in range(utils.get_num_labels(dataset_name)-1)])
+                        ax.legend()
+
+
+                        #sns.histplot([gold_array, predicted_array], kde=False, bins=num_labels, color=['red', 'blue'][:2], label=['Gold Labels', 'Predicted Labels'])
+                        #sns.histplot([gold_array, predicted_array], kde=False, bins=num_labels, color=['red', 'orange', 'green', 'blue', 'purple', 'pink'][:2], label=['Gold Labels', 'Predicted Labels'])
+                        #plt.xlabel('Labels')
+                        #plt.ylabel('Frequency')
+                        #ax.yticks([0,1])
+
+                    # Add a legend
+                    ax.legend()
+                    plt.savefig(f'png/delete_{title_pref}_DistributionComparison.png')
+                    plt.close()
             '''
             elif plot_type == 'error':
                     # 2. Error Analysis
