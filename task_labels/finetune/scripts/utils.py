@@ -13,6 +13,7 @@ RANDOM_SEED = 42
 
 def get_batch_size(dataset_name):
     # 1 when model is xl+
+    return 16
     if dataset_name in ['SChem5Labels', 'Sentiment']:
         BATCH_SIZE = 32
     elif dataset_name in ['SBIC', 'ghc']:

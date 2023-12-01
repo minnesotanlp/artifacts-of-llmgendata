@@ -1,8 +1,8 @@
 import os
 os.environ["WANDB_PROJECT"] = "artifacts"
 os.environ["WANDB_LOG_MODEL"] = "checkpoint"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:32"
 import torch
 torch.cuda.empty_cache()
 import random
@@ -33,40 +33,40 @@ import pickle
 from deepspeed.runtime.utils import see_memory_usage
 #from peft import get_peft_model, LoraConfig, TaskType, prepare_model_for_kbit_training
 import math
+import json
 #import scipy
 SEED = 42
 random.seed(SEED)
 import utils
-#DATA [['model_name', 'dataset_name', 'text_ind', 'text', 'prompt', 'params', 'human_agg', 'model_annots'],
-# intramodel [['dataset_name', 'text_ind', 'text', 'prompt', 'params', 'human_annots', 'model_annots']
-# intermodel************ DATA [['model_name', 'dataset_name', 'text_ind', 'text', 'prompt', 'human_annots', 'model_annots']
-# we want to ignore tokenizer pad token in the loss
-# Data collator
 BATCH_SIZE = -1
 LR = 1e-4
 NUM_CYCLES = 2
-#from typing import List, Optional, Tuple, Union
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 loss_fct = CrossEntropyLoss(ignore_index=-1)
 global_num_labels = 0
 global_num_annots = 0
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+import torch
 import torch.nn as nn
 from transformers import RobertaForSequenceClassification, RobertaTokenizer, RobertaModel
+from accelerate import Accelerator, DistributedType, DeepSpeedPlugin
+from accelerate.state import AcceleratorState
+deepspeed_plugin = DeepSpeedPlugin(zero_stage=2, gradient_accumulation_steps=2)
+accelerator = Accelerator(mixed_precision='fp16', deepspeed_plugin=deepspeed_plugin)
+accelerator.state.deepspeed_plugin.deepspeed_config['train_micro_batch_size_per_gpu'] = 1
+accelerator.state.deepspeed_plugin.num_gpus = 2
+distributed_type = accelerator.state.distributed_type
 
 class MultiTaskRobertaModel(nn.Module):
     def __init__(self, roberta_name, num_annots, num_classes):
         super(MultiTaskRobertaModel, self).__init__()
 
-        # Load pre-trained RoBERTa model and tokenizer
-        self.roberta = RobertaModel.from_pretrained(roberta_name).to(device)
-        self.tokenizer = RobertaTokenizer.from_pretrained(roberta_name)
+        self.roberta = RobertaModel.from_pretrained(roberta_name,
+            #low_cpu_mem_usage=True
+        ).to(accelerator.device)
         self.config = self.roberta.config
-
-        # Classification tasks
-        self.classifiers = [nn.Linear(self.roberta.config.hidden_size, num_classes).to(device) for _ in range(num_annots)]
-        #self = self.to(device)
+        #self.classifiers = [nn.Linear(self.roberta.config.hidden_size, num_classes) for _ in range(num_annots)]
+        self.classifiers = [nn.Linear(self.roberta.config.hidden_size, num_classes).to(accelerator.device) for _ in range(num_annots)]
 
     def forward(self, input_ids, attention_mask, labels=[]):
         # Forward pass through RoBERTa
@@ -90,44 +90,42 @@ class CustomTrainer(Trainer):
         for i in range(len(labels)):
             for j in range(len(outputs)):
                 loss += loss_fct(outputs[j][i], labels[i][j])
-        '''
-
-        print("OUTPUTS", outputs)
-        raise ValueError("STOP")
-
-        if labels is not None:
-            unwrapped_model = unwrap_model(model)
-            if is_peft_available() and isinstance(unwrapped_model, PeftModel):
-                model_name = unwrapped_model.base_model.model._get_name()
-            else:
-                model_name = unwrapped_model._get_name()
-            if model_name in MODEL_FOR_CAUSAL_LM_MAPPING_NAMES.values():
-                loss = self.label_smoother(outputs, labels, shift_labels=True)
-            else:
-                loss = self.label_smoother(outputs, labels)
-        else:
-            if isinstance(outputs, dict) and "loss" not in outputs:
-                raise ValueError(
-                    "The model did not return a loss from the inputs, only the following keys: "
-                    f"{','.join(outputs.keys())}. For reference, the inputs it received are {','.join(inputs.keys())}."
-                )
-            # We don't use .loss here since the model may return tuples instead of ModelOutput.
-            loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
-        '''
 
         return (loss, outputs) if return_outputs else loss
 
 
 
 def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, dataset_mode, target_col='model_annots_str'):
+    #from accelerate import Accelerator, DistributedType
+    #from accelerate.state import AcceleratorState
+    #accelerator = Accelerator()
+    #accelerator_state = AcceleratorState()
+    #accelerator_state.deepspeed_plugin.deepspeed_config['train_micro_batch_size_per_gpu'] = 1
+    #distributed_type = accelerator_state.__dict__['distributed_type']
+
     global global_num_labels, global_num_annots, BATCH_SIZE
     global_num_labels = utils.get_num_labels(dataset_name)
     global_num_annots = utils.get_num_annots(dataset_name)
     BATCH_SIZE = utils.get_batch_size(dataset_name)
     # Instantiate the model
-    model = MultiTaskRobertaModel(model_id, global_num_annots, global_num_labels).to(device)
+    model = MultiTaskRobertaModel(model_id, global_num_annots, global_num_labels)
+    #model = nn.DataParallel(model)
     tokenizer = RobertaTokenizer.from_pretrained(model_id)
-    tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, model.tokenizer, col_for_num_labels, remove_columns=remove_columns, mode=dataset_mode, target_col=target_col)
+    tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, tokenizer, col_for_num_labels, remove_columns=remove_columns, mode=dataset_mode, target_col=target_col)
+    no_decay = ['bias', 'LayerNorm.weight']
+    optimizer_grouped_parameters = [
+        {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
+        {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
+    ]
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
+    num_training_steps = int(len(tokenized_dataset["train"])/BATCH_SIZE) + 1000
+    num_warmup_steps = num_training_steps * 0.1
+    #scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, NUM_CYCLES)
+    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps)
+    #optimizer = accelerator.prepare(optimizer)
+    #scheduler = accelerator.prepare(scheduler)
+    model, optimizer, scheduler = accelerator.prepare(model, optimizer, scheduler)
+    #model, optimizer,scheduler = accelerator.prepare(model, optimizer,scheduler)
     # RERUN THINGS WITHOUT BELOW WHEN WE HAVE TIME
     #tokenized_dataset["train"] = tokenized_dataset["train"].select(range(min(1000, len(tokenized_dataset["train"]))))
     #tokenized_dataset["val"] = tokenized_dataset["val"].select(range(min(100, len(tokenized_dataset["val"]))))
@@ -147,7 +145,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         per_device_eval_batch_size=BATCH_SIZE,
         #predict_with_generate=True, #comment out for sfttrainer
         #generation_config=self.model.generation_config, #commend out for sfttrainer
-        bf16=True,############3
+        #bf16=True,############3
         #fp16_full_eval=True,#########
         #dataloader_num_workers=accelerator.num_processes,
         learning_rate=LR,
@@ -172,7 +170,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         #compute_loss=compute_metrics,
         #generation_config=generation_config,
     )
-    training_args._n_gpu = 2
+    #training_args._n_gpu = 2
     data_collator = DataCollatorWithPadding(
         tokenizer=tokenizer, 
         pad_to_multiple_of=8
@@ -211,30 +209,32 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         return {"accuracy1": accuracy1, "accuracy2": accuracy2}
         '''
 
-    #optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
-    no_decay = ['bias', 'LayerNorm.weight']
-    optimizer_grouped_parameters = [
-        {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
-        {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
-    ]
-    optimizer = AdamW(optimizer_grouped_parameters, lr=LR)
-    num_training_steps = int(len(tokenized_dataset["train"])/BATCH_SIZE) + 1000
-    print("NUM TRAINING STEPS", num_training_steps)
-    #optimizer = Adafactor(self.model.parameters(), relative_step=False, warmup_init=False, lr=LR)
-    num_warmup_steps = num_training_steps * 0.1
-    #scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, NUM_CYCLES)
-    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps)
-
-    trainer = CustomTrainer(
-        model=model,
-        args=training_args,
-        tokenizer=tokenizer,
-        train_dataset=tokenized_dataset["train"],
-        eval_dataset=tokenized_dataset["val"],
-        callbacks=[early_stopping],
-        optimizers=(optimizer, scheduler),
-        #compute_metrics=,
-    )
+    if distributed_type == DistributedType.DEEPSPEED:
+        trainer = CustomTrainer(
+            model=model,
+            args=training_args,
+            tokenizer=tokenizer,
+            train_dataset=tokenized_dataset["train"],
+            eval_dataset=tokenized_dataset["val"],
+            callbacks=[early_stopping],
+        )
+        #optim_scheduler = self.trainer.create_optimizer_and_scheduler(num_training_steps=10) #num_training_steps) ########################################################
+        #trainer.optimizer = optim_scheduler[0]
+        #trainer.lr_scheduler = optim_scheduler[1]
+        trainer.optimizer = optimizer
+        trainer.lr_scheduler = scheduler
+        
+    else:
+        trainer = CustomTrainer(
+            model=model,
+            args=training_args,
+            tokenizer=tokenizer,
+            train_dataset=tokenized_dataset["train"],
+            eval_dataset=tokenized_dataset["val"],
+            callbacks=[early_stopping],
+            optimizers=(optimizer, scheduler),
+            #compute_metrics=,
+        )
 
     trainer.train()
 
@@ -243,9 +243,6 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     trainer.create_model_card()
     trainer.push_to_hub()
 
-
-    print(tokenized_dataset["test"])
-    print("-------EVALUTE-----------")
     #print(trainer.evaluate(eval_dataset=tokenized_dataset["test"]))
     #print("-------PREDICT-----------")
     p = trainer.predict(tokenized_dataset["test"])
@@ -349,7 +346,8 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     #)
     #'''
 model_id = "roberta-large"
-for dn in ['SChem5Labels', 'Sentiment', 'SBIC']:
+#for dn in ['SChem5Labels', 'Sentiment', 'SBIC']:
+for dn in ['ghc']:
     #for m in ['frequency', 'dataset-frequency']:
     for m in ['sorted']:
     #for m in ['dataset-frequency']:
@@ -360,6 +358,7 @@ for dn in ['SChem5Labels', 'Sentiment', 'SBIC']:
              col_for_num_labels = "model_annots",
              target_col='model_annots',
              dataset_mode = m)
+        '''
         main(filename = '../data/intermodel_data.csv', 
              model_id = model_id,
              dataset_name = dn,
@@ -381,3 +380,4 @@ for dn in ['SChem5Labels', 'Sentiment', 'SBIC']:
              col_for_num_labels = "human_annots",
              dataset_mode = m,
              target_col = "human_annots")
+        '''
