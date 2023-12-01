@@ -1,13 +1,14 @@
 import os
 os.environ["WANDB_PROJECT"] = "artifacts"
 os.environ["WANDB_LOG_MODEL"] = "checkpoint"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:32"
 import torch
 torch.cuda.empty_cache()
 import random
 from random import randrange        
 import json
+from copy import deepcopy
 from pandas import read_csv
 from datasets import load_dataset, concatenate_datasets, DatasetDict, Dataset
 from torch.utils.data import DataLoader
@@ -33,117 +34,111 @@ import pickle
 from deepspeed.runtime.utils import see_memory_usage
 #from peft import get_peft_model, LoraConfig, TaskType, prepare_model_for_kbit_training
 import math
-#import scipy
+import json
+import evaluate
+mse_metric = evaluate.load("mse")
 SEED = 42
 random.seed(SEED)
 import utils
-#DATA [['model_name', 'dataset_name', 'text_ind', 'text', 'prompt', 'params', 'human_agg', 'model_annots'],
-# intramodel [['dataset_name', 'text_ind', 'text', 'prompt', 'params', 'human_annots', 'model_annots']
-# intermodel************ DATA [['model_name', 'dataset_name', 'text_ind', 'text', 'prompt', 'human_annots', 'model_annots']
-# we want to ignore tokenizer pad token in the loss
-# Data collator
-BATCH_SIZE = -1
 LR = 1e-4
 NUM_CYCLES = 2
-#from typing import List, Optional, Tuple, Union
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 loss_fct = CrossEntropyLoss(ignore_index=-1)
 global_num_labels = 0
 global_num_annots = 0
-from accelerate import Accelerator
-accelerator = Accelerator()
-device = accelerator.device if torch.cuda.is_available() else torch.device("cpu")
-
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+import torch
 import torch.nn as nn
 from transformers import RobertaForSequenceClassification, RobertaTokenizer, RobertaModel
+from accelerate import Accelerator, DistributedType, DeepSpeedPlugin
+from accelerate.state import AcceleratorState
+deepspeed_plugin = DeepSpeedPlugin(zero_stage=2, gradient_accumulation_steps=2)
+accelerator = Accelerator(mixed_precision='fp16', deepspeed_plugin=deepspeed_plugin)
+accelerator.state.deepspeed_plugin.deepspeed_config['train_micro_batch_size_per_gpu'] = 1
+accelerator.state.deepspeed_plugin.num_gpus = 2
+distributed_type = accelerator.state.distributed_type
+alpha = 0.5 # for the loss function 
 
 class MultiTaskRobertaModel(nn.Module):
     def __init__(self, roberta_name, num_annots, num_classes):
         super(MultiTaskRobertaModel, self).__init__()
-
-        # Load pre-trained RoBERTa model and tokenizer
-        self.roberta = RobertaModel.from_pretrained(roberta_name)#.to(device)
-        self.tokenizer = RobertaTokenizer.from_pretrained(roberta_name)
-        self.config = self.roberta.config
-
-        # Classification tasks
-        self.classifiers = [nn.Linear(self.roberta.config.hidden_size, num_classes) for _ in range(num_annots)]
-        #self = self.to(device)
+        self.roberta = RobertaModel.from_pretrained(roberta_name,).to(accelerator.device)
+        #self.config = self.roberta.config
+        self.classifiers = [nn.Linear(self.roberta.config.hidden_size, num_classes).to(accelerator.device) for _ in range(num_annots)]
 
     def forward(self, input_ids, attention_mask, labels=[]):
-        # Forward pass through RoBERTa
         outputs = self.roberta(input_ids=input_ids, attention_mask=attention_mask)
         last_hidden_state = outputs.last_hidden_state[:, 0, :]  # Use the [CLS] token representation
-
-        # Forward pass through classifiers
         outputs = [classifier(last_hidden_state) for classifier in self.classifiers]
         return outputs
 
-class CustomTrainer(Trainer):
-      def compute_loss(self, model, inputs, return_outputs=False):
-        """
-        How the loss is computed by Trainer. By default, all models return the loss in the first element.
+class CustomValueDistanceLoss(nn.Module):
+    def __init__(self):
+        super(CustomValueDistanceLoss, self).__init__()
 
-        Subclass and override for custom behavior.
-        """
+    def forward(self, y_true, y_pred):
+        if y_true == -1 or y_pred == -1:
+            return 0
+        loss = 0.5 * torch.mean((y_true - y_pred)**2)
+        return loss
+val_dist_fct = CustomValueDistanceLoss()
+
+class CustomTrainer(Trainer):
+    def compute_loss(self, model, inputs, return_outputs=False):
         labels = inputs.pop("labels")
         outputs = model(**inputs)
         loss = 0
+        # sum up losses from all heads
         for i in range(len(labels)):
             for j in range(len(outputs)):
-                loss += loss_fct(outputs[j][i], labels[i][j])
-        '''
-
-        print("OUTPUTS", outputs)
-        raise ValueError("STOP")
-
-        if labels is not None:
-            unwrapped_model = unwrap_model(model)
-            if is_peft_available() and isinstance(unwrapped_model, PeftModel):
-                model_name = unwrapped_model.base_model.model._get_name()
-            else:
-                model_name = unwrapped_model._get_name()
-            if model_name in MODEL_FOR_CAUSAL_LM_MAPPING_NAMES.values():
-                loss = self.label_smoother(outputs, labels, shift_labels=True)
-            else:
-                loss = self.label_smoother(outputs, labels)
-        else:
-            if isinstance(outputs, dict) and "loss" not in outputs:
-                raise ValueError(
-                    "The model did not return a loss from the inputs, only the following keys: "
-                    f"{','.join(outputs.keys())}. For reference, the inputs it received are {','.join(inputs.keys())}."
-                )
-            # We don't use .loss here since the model may return tuples instead of ModelOutput.
-            loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
-        '''
-
+                ce = loss_fct(outputs[j][i], labels[i][j])
+                pred_label = torch.argmax(outputs[j][i]).float()
+                pred_label.requires_grad = True
+                loss += alpha * ce + (1-alpha) * val_dist_fct(labels[i][j], pred_label)
         return (loss, outputs) if return_outputs else loss
 
-
+    def compute_metrics(self, eval_pred):
+        print("EVAL PRED", eval_pred)
+        predictions, labels = eval_pred
+        #print(predictions)
+        #print(labels)
+        res = mse_metric.compute(predictions=predictions, references=labels)
+        res['eval_mse'] = res['mse']
+        return res
 
 def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, dataset_mode, target_col='model_annots_str'):
-    global global_num_labels, global_num_annots, BATCH_SIZE
+    global global_num_labels, global_num_annots
     global_num_labels = utils.get_num_labels(dataset_name)
     global_num_annots = utils.get_num_annots(dataset_name)
     BATCH_SIZE = utils.get_batch_size(dataset_name)
-    # Instantiate the model
     model = MultiTaskRobertaModel(model_id, global_num_annots, global_num_labels)
-    model = accelerator.prepare(model)
+    #model = nn.DataParallel(model)
     tokenizer = RobertaTokenizer.from_pretrained(model_id)
     tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, tokenizer, col_for_num_labels, remove_columns=remove_columns, mode=dataset_mode, target_col=target_col)
-    tokenized_dataset = accelerator.prepare(tokenized_dataset)
-    # RERUN THINGS WITHOUT BELOW WHEN WE HAVE TIME
-    #tokenized_dataset["train"] = tokenized_dataset["train"].select(range(min(1000, len(tokenized_dataset["train"]))))
-    #tokenized_dataset["val"] = tokenized_dataset["val"].select(range(min(100, len(tokenized_dataset["val"]))))
-    #tokenized_dataset["test"] = tokenized_dataset["test"].select(range(min(100, len(tokenized_dataset["test"]))))
+    no_decay = ['bias', 'LayerNorm.weight']
+    optimizer_grouped_parameters = [
+        {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
+        {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
+    ]
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
+    num_training_steps = int(len(tokenized_dataset["train"])/BATCH_SIZE) + 1000
+    num_warmup_steps = num_training_steps * 0.1
+    #scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, NUM_CYCLES)
+    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps)
+    model, optimizer, scheduler = accelerator.prepare(model, optimizer, scheduler)
+    accelerator.wait_for_everyone()
+    #model = accelerator.prepare_model(model)
+
+    # WHEN DEBUGGING 
+    #tokenized_dataset["train"] = tokenized_dataset["train"].select(range(min(100, len(tokenized_dataset["train"]))))
+    #tokenized_dataset["val"] = tokenized_dataset["val"].select(range(min(10, len(tokenized_dataset["val"]))))
+    #tokenized_dataset["test"] = tokenized_dataset["test"].select(range(min(10, len(tokenized_dataset["test"]))))
 
     if 'intra' in filename: 
         # for the non-batch size stuff, we used a batch size of 5000, which worked horribly for the bigger models
         repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra-{dataset_mode}-{target_col.replace('_annots_str', '')}-cross-ent"
     else:
         repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter-{dataset_mode}-{target_col.replace('_annots_str', '')}-cross-ent"
-
-    early_stopping = EarlyStoppingCallback(early_stopping_patience=3)
 
     training_args = TrainingArguments(
         output_dir=repository_id,
@@ -159,24 +154,22 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         logging_strategy="steps",
         logging_steps=1,
         evaluation_strategy="steps",
-        #save_steps=100,
-        num_train_epochs=50,
+        num_train_epochs=5,
         save_strategy="steps",
         save_total_limit=2,
         load_best_model_at_end=True,
-        metric_for_best_model="eval_loss",
-        greater_is_better=False,
+        #metric_for_best_model="mse",
+        #greater_is_better=False,
         report_to="wandb",
         push_to_hub=True,
         include_inputs_for_metrics=True,
-        hub_strategy="every_save",
+        hub_strategy="checkpoint",
         hub_model_id=repository_id,
         hub_token=HfFolder.get_token(),
         remove_unused_columns = False,#"Mistral" in self.model_name,
-        #compute_loss=compute_metrics,
         #generation_config=generation_config,
     )
-    training_args._n_gpu = 2
+    #training_args._n_gpu = 2
     data_collator = DataCollatorWithPadding(
         tokenizer=tokenizer, 
         pad_to_multiple_of=8
@@ -190,68 +183,38 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     #    num_workers=4,  # Adjust based on your system configuration
     #    #collate_fn=custom_collate_fn,  # Replace with your collate function if neede
     #)
-    def compute_metrics(p):
-        pass
-        '''
-        # p is a tuple containing predictions for each task
-        predictions1, predictions2 = p.predictions
 
-        # Assuming predictions are logits; convert them to class probabilities
-        probabilities1 = torch.nn.functional.softmax(predictions1, dim=-1)
-        probabilities2 = torch.nn.functional.softmax(predictions2, dim=-1)
-
-        # Assuming you have labels for each task in the dataset
-        labels1 = p.label_ids1
-        labels2 = p.label_ids2
-
-        # Calculate accuracy for each task
-        correct1 = (torch.argmax(probabilities1, dim=-1) == labels1).float()
-        accuracy1 = correct1.mean().item()
-
-        correct2 = (torch.argmax(probabilities2, dim=-1) == labels2).float()
-        accuracy2 = correct2.mean().item()
-
-        # You can return any metrics you're interested in
-        return {"accuracy1": accuracy1, "accuracy2": accuracy2}
-        '''
-
-    #optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
-    no_decay = ['bias', 'LayerNorm.weight']
-    optimizer_grouped_parameters = [
-        {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
-        {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
-    ]
-    optimizer = AdamW(optimizer_grouped_parameters, lr=LR)
-    num_training_steps = int(len(tokenized_dataset["train"])/BATCH_SIZE) + 1000
-    print("NUM TRAINING STEPS", num_training_steps)
-    #optimizer = Adafactor(self.model.parameters(), relative_step=False, warmup_init=False, lr=LR)
-    num_warmup_steps = num_training_steps * 0.1
-    #scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, NUM_CYCLES)
-    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps)
-    optimizer = accelerator.prepare(optimizer)
-    scheduler = accelerator.prepare(scheduler)
-
-    trainer = CustomTrainer(
-        model=model,
-        args=training_args,
-        tokenizer=tokenizer,
-        train_dataset=tokenized_dataset["train"],
-        eval_dataset=tokenized_dataset["val"],
-        callbacks=[early_stopping],
-        optimizers=(optimizer, scheduler),
-        #compute_metrics=,
-    )
-
+    if distributed_type == DistributedType.DEEPSPEED:
+        trainer = CustomTrainer(
+            model=model,
+            args=training_args,
+            tokenizer=tokenizer,
+            train_dataset=tokenized_dataset["train"],
+            eval_dataset=tokenized_dataset["val"],
+            #compute_metrics=compute_metrics,
+        )
+        #optim_scheduler = self.trainer.create_optimizer_and_scheduler(num_training_steps=10) #num_training_steps) ########################################################
+        #trainer.optimizer = optim_scheduler[0]
+        #trainer.lr_scheduler = optim_scheduler[1]
+        trainer.optimizer = optimizer
+        trainer.lr_scheduler = scheduler
+        
+    else:
+        trainer = CustomTrainer(
+            model=model,
+            args=training_args,
+            tokenizer=tokenizer,
+            train_dataset=tokenized_dataset["train"],
+            eval_dataset=tokenized_dataset["val"],
+            optimizers=(optimizer, scheduler),
+            #compute_metrics=compute_metrics,
+        )
     trainer.train()
 
-    #model.save_pretrained(f'{repository_id}.pt') 
-    #tokenizer.save_pretrained(f'{repository_id}.pt')
+    trainer.save_model(f'{repository_id}.pt')
     trainer.create_model_card()
     trainer.push_to_hub()
 
-
-    print(tokenized_dataset["test"])
-    print("-------EVALUTE-----------")
     #print(trainer.evaluate(eval_dataset=tokenized_dataset["test"]))
     #print("-------PREDICT-----------")
     p = trainer.predict(tokenized_dataset["test"])
@@ -355,7 +318,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     #)
     #'''
 model_id = "roberta-large"
-for dn in ['SChem5Labels', 'Sentiment', 'SBIC']:
+for dn in ['SChem5Labels', 'Sentiment', 'SBIC', 'ghc']:
     #for m in ['frequency', 'dataset-frequency']:
     for m in ['sorted']:
     #for m in ['dataset-frequency']:
@@ -366,6 +329,7 @@ for dn in ['SChem5Labels', 'Sentiment', 'SBIC']:
              col_for_num_labels = "model_annots",
              target_col='model_annots',
              dataset_mode = m)
+        '''
         main(filename = '../data/intermodel_data.csv', 
              model_id = model_id,
              dataset_name = dn,
@@ -387,3 +351,4 @@ for dn in ['SChem5Labels', 'Sentiment', 'SBIC']:
              col_for_num_labels = "human_annots",
              dataset_mode = m,
              target_col = "human_annots")
+        '''
