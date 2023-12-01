@@ -1,13 +1,14 @@
 import os
 os.environ["WANDB_PROJECT"] = "artifacts"
 os.environ["WANDB_LOG_MODEL"] = "checkpoint"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:32"
 import torch
 torch.cuda.empty_cache()
 import random
 from random import randrange        
 import json
+from copy import deepcopy
 from pandas import read_csv
 from datasets import load_dataset, concatenate_datasets, DatasetDict, Dataset
 from torch.utils.data import DataLoader
@@ -34,11 +35,11 @@ from deepspeed.runtime.utils import see_memory_usage
 #from peft import get_peft_model, LoraConfig, TaskType, prepare_model_for_kbit_training
 import math
 import json
-#import scipy
+import evaluate
+mse_metric = evaluate.load("mse")
 SEED = 42
 random.seed(SEED)
 import utils
-BATCH_SIZE = -1
 LR = 1e-4
 NUM_CYCLES = 2
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
@@ -56,58 +57,60 @@ accelerator = Accelerator(mixed_precision='fp16', deepspeed_plugin=deepspeed_plu
 accelerator.state.deepspeed_plugin.deepspeed_config['train_micro_batch_size_per_gpu'] = 1
 accelerator.state.deepspeed_plugin.num_gpus = 2
 distributed_type = accelerator.state.distributed_type
+alpha = 0.5 # for the loss function 
 
 class MultiTaskRobertaModel(nn.Module):
     def __init__(self, roberta_name, num_annots, num_classes):
         super(MultiTaskRobertaModel, self).__init__()
-
-        self.roberta = RobertaModel.from_pretrained(roberta_name,
-            #low_cpu_mem_usage=True
-        ).to(accelerator.device)
-        self.config = self.roberta.config
-        #self.classifiers = [nn.Linear(self.roberta.config.hidden_size, num_classes) for _ in range(num_annots)]
+        self.roberta = RobertaModel.from_pretrained(roberta_name,).to(accelerator.device)
+        #self.config = self.roberta.config
         self.classifiers = [nn.Linear(self.roberta.config.hidden_size, num_classes).to(accelerator.device) for _ in range(num_annots)]
 
     def forward(self, input_ids, attention_mask, labels=[]):
-        # Forward pass through RoBERTa
         outputs = self.roberta(input_ids=input_ids, attention_mask=attention_mask)
         last_hidden_state = outputs.last_hidden_state[:, 0, :]  # Use the [CLS] token representation
-
-        # Forward pass through classifiers
         outputs = [classifier(last_hidden_state) for classifier in self.classifiers]
         return outputs
 
-class CustomTrainer(Trainer):
-      def compute_loss(self, model, inputs, return_outputs=False):
-        """
-        How the loss is computed by Trainer. By default, all models return the loss in the first element.
+class CustomValueDistanceLoss(nn.Module):
+    def __init__(self):
+        super(CustomValueDistanceLoss, self).__init__()
 
-        Subclass and override for custom behavior.
-        """
+    def forward(self, y_true, y_pred):
+        if y_true == -1 or y_pred == -1:
+            return 0
+        loss = 0.5 * torch.mean((y_true - y_pred)**2)
+        return loss
+val_dist_fct = CustomValueDistanceLoss()
+
+class CustomTrainer(Trainer):
+    def compute_loss(self, model, inputs, return_outputs=False):
         labels = inputs.pop("labels")
         outputs = model(**inputs)
         loss = 0
+        # sum up losses from all heads
         for i in range(len(labels)):
             for j in range(len(outputs)):
-                loss += loss_fct(outputs[j][i], labels[i][j])
-
+                ce = loss_fct(outputs[j][i], labels[i][j])
+                pred_label = torch.argmax(outputs[j][i]).float()
+                pred_label.requires_grad = True
+                loss += alpha * ce + (1-alpha) * val_dist_fct(labels[i][j], pred_label)
         return (loss, outputs) if return_outputs else loss
 
-
+    def compute_metrics(self, eval_pred):
+        print("EVAL PRED", eval_pred)
+        predictions, labels = eval_pred
+        #print(predictions)
+        #print(labels)
+        res = mse_metric.compute(predictions=predictions, references=labels)
+        res['eval_mse'] = res['mse']
+        return res
 
 def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, dataset_mode, target_col='model_annots_str'):
-    #from accelerate import Accelerator, DistributedType
-    #from accelerate.state import AcceleratorState
-    #accelerator = Accelerator()
-    #accelerator_state = AcceleratorState()
-    #accelerator_state.deepspeed_plugin.deepspeed_config['train_micro_batch_size_per_gpu'] = 1
-    #distributed_type = accelerator_state.__dict__['distributed_type']
-
-    global global_num_labels, global_num_annots, BATCH_SIZE
+    global global_num_labels, global_num_annots
     global_num_labels = utils.get_num_labels(dataset_name)
     global_num_annots = utils.get_num_annots(dataset_name)
     BATCH_SIZE = utils.get_batch_size(dataset_name)
-    # Instantiate the model
     model = MultiTaskRobertaModel(model_id, global_num_annots, global_num_labels)
     #model = nn.DataParallel(model)
     tokenizer = RobertaTokenizer.from_pretrained(model_id)
@@ -122,22 +125,20 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     num_warmup_steps = num_training_steps * 0.1
     #scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, NUM_CYCLES)
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps)
-    #optimizer = accelerator.prepare(optimizer)
-    #scheduler = accelerator.prepare(scheduler)
     model, optimizer, scheduler = accelerator.prepare(model, optimizer, scheduler)
-    #model, optimizer,scheduler = accelerator.prepare(model, optimizer,scheduler)
-    # RERUN THINGS WITHOUT BELOW WHEN WE HAVE TIME
-    #tokenized_dataset["train"] = tokenized_dataset["train"].select(range(min(1000, len(tokenized_dataset["train"]))))
-    #tokenized_dataset["val"] = tokenized_dataset["val"].select(range(min(100, len(tokenized_dataset["val"]))))
-    #tokenized_dataset["test"] = tokenized_dataset["test"].select(range(min(100, len(tokenized_dataset["test"]))))
+    accelerator.wait_for_everyone()
+    #model = accelerator.prepare_model(model)
+
+    # WHEN DEBUGGING 
+    #tokenized_dataset["train"] = tokenized_dataset["train"].select(range(min(100, len(tokenized_dataset["train"]))))
+    #tokenized_dataset["val"] = tokenized_dataset["val"].select(range(min(10, len(tokenized_dataset["val"]))))
+    #tokenized_dataset["test"] = tokenized_dataset["test"].select(range(min(10, len(tokenized_dataset["test"]))))
 
     if 'intra' in filename: 
         # for the non-batch size stuff, we used a batch size of 5000, which worked horribly for the bigger models
         repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra-{dataset_mode}-{target_col.replace('_annots_str', '')}-cross-ent"
     else:
         repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter-{dataset_mode}-{target_col.replace('_annots_str', '')}-cross-ent"
-
-    early_stopping = EarlyStoppingCallback(early_stopping_patience=3)
 
     training_args = TrainingArguments(
         output_dir=repository_id,
@@ -153,21 +154,19 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         logging_strategy="steps",
         logging_steps=1,
         evaluation_strategy="steps",
-        #save_steps=100,
-        num_train_epochs=50,
+        num_train_epochs=5,
         save_strategy="steps",
         save_total_limit=2,
         load_best_model_at_end=True,
-        metric_for_best_model="eval_loss",
-        greater_is_better=False,
+        #metric_for_best_model="mse",
+        #greater_is_better=False,
         report_to="wandb",
         push_to_hub=True,
         include_inputs_for_metrics=True,
-        hub_strategy="every_save",
+        hub_strategy="checkpoint",
         hub_model_id=repository_id,
         hub_token=HfFolder.get_token(),
         remove_unused_columns = False,#"Mistral" in self.model_name,
-        #compute_loss=compute_metrics,
         #generation_config=generation_config,
     )
     #training_args._n_gpu = 2
@@ -184,30 +183,6 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     #    num_workers=4,  # Adjust based on your system configuration
     #    #collate_fn=custom_collate_fn,  # Replace with your collate function if neede
     #)
-    def compute_metrics(p):
-        pass
-        '''
-        # p is a tuple containing predictions for each task
-        predictions1, predictions2 = p.predictions
-
-        # Assuming predictions are logits; convert them to class probabilities
-        probabilities1 = torch.nn.functional.softmax(predictions1, dim=-1)
-        probabilities2 = torch.nn.functional.softmax(predictions2, dim=-1)
-
-        # Assuming you have labels for each task in the dataset
-        labels1 = p.label_ids1
-        labels2 = p.label_ids2
-
-        # Calculate accuracy for each task
-        correct1 = (torch.argmax(probabilities1, dim=-1) == labels1).float()
-        accuracy1 = correct1.mean().item()
-
-        correct2 = (torch.argmax(probabilities2, dim=-1) == labels2).float()
-        accuracy2 = correct2.mean().item()
-
-        # You can return any metrics you're interested in
-        return {"accuracy1": accuracy1, "accuracy2": accuracy2}
-        '''
 
     if distributed_type == DistributedType.DEEPSPEED:
         trainer = CustomTrainer(
@@ -216,7 +191,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
             tokenizer=tokenizer,
             train_dataset=tokenized_dataset["train"],
             eval_dataset=tokenized_dataset["val"],
-            callbacks=[early_stopping],
+            #compute_metrics=compute_metrics,
         )
         #optim_scheduler = self.trainer.create_optimizer_and_scheduler(num_training_steps=10) #num_training_steps) ########################################################
         #trainer.optimizer = optim_scheduler[0]
@@ -231,15 +206,12 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
             tokenizer=tokenizer,
             train_dataset=tokenized_dataset["train"],
             eval_dataset=tokenized_dataset["val"],
-            callbacks=[early_stopping],
             optimizers=(optimizer, scheduler),
-            #compute_metrics=,
+            #compute_metrics=compute_metrics,
         )
-
     trainer.train()
 
-    model.save_pretrained(f'{repository_id}.pt') 
-    tokenizer.save_pretrained(f'{repository_id}.pt')
+    trainer.save_model(f'{repository_id}.pt')
     trainer.create_model_card()
     trainer.push_to_hub()
 
@@ -346,8 +318,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     #)
     #'''
 model_id = "roberta-large"
-#for dn in ['SChem5Labels', 'Sentiment', 'SBIC']:
-for dn in ['ghc']:
+for dn in ['SChem5Labels', 'Sentiment', 'SBIC', 'ghc']:
     #for m in ['frequency', 'dataset-frequency']:
     for m in ['sorted']:
     #for m in ['dataset-frequency']:
