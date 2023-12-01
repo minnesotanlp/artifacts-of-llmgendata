@@ -1,0 +1,3 @@
+accelerate launch finetune_roberta.py --model_id roberta-large --dataset_name SChem5Labels --filename ../data/intramodel_data.csv --col_for_num_labels model_annots --dataset_mode sorted --target_col model_annots
+accelerate launch finetune_roberta.py --model_id roberta-large --dataset_name Sentiment --filename ../data/intramodel_data.csv --col_for_num_labels model_annots --dataset_mode sorted --target_col model_annots
+accelerate launch finetune_roberta.py --model_id roberta-large --dataset_name SBIC --filename ../data/intramodel_data.csv --col_for_num_labels model_annots --dataset_mode sorted --target_col model_annots
