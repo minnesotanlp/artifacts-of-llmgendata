@@ -1,7 +1,7 @@
 import os
 os.environ["WANDB_PROJECT"] = "artifacts"
 os.environ["WANDB_LOG_MODEL"] = "checkpoint"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
 import torch
 torch.cuda.empty_cache()
@@ -50,7 +50,9 @@ from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 loss_fct = CrossEntropyLoss(ignore_index=-1)
 global_num_labels = 0
 global_num_annots = 0
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+from accelerate import Accelerator
+accelerator = Accelerator()
+device = accelerator.device if torch.cuda.is_available() else torch.device("cpu")
 
 import torch.nn as nn
 from transformers import RobertaForSequenceClassification, RobertaTokenizer, RobertaModel
@@ -60,12 +62,12 @@ class MultiTaskRobertaModel(nn.Module):
         super(MultiTaskRobertaModel, self).__init__()
 
         # Load pre-trained RoBERTa model and tokenizer
-        self.roberta = RobertaModel.from_pretrained(roberta_name).to(device)
+        self.roberta = RobertaModel.from_pretrained(roberta_name)#.to(device)
         self.tokenizer = RobertaTokenizer.from_pretrained(roberta_name)
         self.config = self.roberta.config
 
         # Classification tasks
-        self.classifiers = [nn.Linear(self.roberta.config.hidden_size, num_classes).to(device) for _ in range(num_annots)]
+        self.classifiers = [nn.Linear(self.roberta.config.hidden_size, num_classes) for _ in range(num_annots)]
         #self = self.to(device)
 
     def forward(self, input_ids, attention_mask, labels=[]):
@@ -125,9 +127,11 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     global_num_annots = utils.get_num_annots(dataset_name)
     BATCH_SIZE = utils.get_batch_size(dataset_name)
     # Instantiate the model
-    model = MultiTaskRobertaModel(model_id, global_num_annots, global_num_labels).to(device)
+    model = MultiTaskRobertaModel(model_id, global_num_annots, global_num_labels)
+    model = accelerator.prepare(model)
     tokenizer = RobertaTokenizer.from_pretrained(model_id)
-    tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, model.tokenizer, col_for_num_labels, remove_columns=remove_columns, mode=dataset_mode, target_col=target_col)
+    tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, tokenizer, col_for_num_labels, remove_columns=remove_columns, mode=dataset_mode, target_col=target_col)
+    tokenized_dataset = accelerator.prepare(tokenized_dataset)
     # RERUN THINGS WITHOUT BELOW WHEN WE HAVE TIME
     #tokenized_dataset["train"] = tokenized_dataset["train"].select(range(min(1000, len(tokenized_dataset["train"]))))
     #tokenized_dataset["val"] = tokenized_dataset["val"].select(range(min(100, len(tokenized_dataset["val"]))))
@@ -147,7 +151,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         per_device_eval_batch_size=BATCH_SIZE,
         #predict_with_generate=True, #comment out for sfttrainer
         #generation_config=self.model.generation_config, #commend out for sfttrainer
-        bf16=True,############3
+        #bf16=True,############3
         #fp16_full_eval=True,#########
         #dataloader_num_workers=accelerator.num_processes,
         learning_rate=LR,
@@ -224,6 +228,8 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     num_warmup_steps = num_training_steps * 0.1
     #scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, NUM_CYCLES)
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps)
+    optimizer = accelerator.prepare(optimizer)
+    scheduler = accelerator.prepare(scheduler)
 
     trainer = CustomTrainer(
         model=model,
@@ -238,8 +244,8 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
 
     trainer.train()
 
-    model.save_pretrained(f'{repository_id}.pt') 
-    tokenizer.save_pretrained(f'{repository_id}.pt')
+    #model.save_pretrained(f'{repository_id}.pt') 
+    #tokenizer.save_pretrained(f'{repository_id}.pt')
     trainer.create_model_card()
     trainer.push_to_hub()
 
