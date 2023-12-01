@@ -94,17 +94,19 @@ class CustomTrainer(Trainer):
                 ce = loss_fct(outputs[j][i], labels[i][j])
                 pred_label = torch.argmax(outputs[j][i]).float()
                 pred_label.requires_grad = True
-                loss += alpha * ce + (1-alpha) * val_dist_fct(labels[i][j], pred_label)
+                dist = val_dist_fct(labels[i][j], pred_label)
+                print("ce", ce, "dist", dist, "labels", labels[i][j], "pred_label", pred_label)
+                loss += alpha * ce + (1-alpha) * dist 
         return (loss, outputs) if return_outputs else loss
 
-    def compute_metrics(self, eval_pred):
-        print("EVAL PRED", eval_pred)
-        predictions, labels = eval_pred
-        #print(predictions)
-        #print(labels)
-        res = mse_metric.compute(predictions=predictions, references=labels)
-        res['eval_mse'] = res['mse']
-        return res
+    #def compute_metrics(self, eval_pred):
+    #    print("EVAL PRED", eval_pred)
+    #    predictions, labels = eval_pred
+    #    #print(predictions)
+    ##    #print(labels)
+    #    res = mse_metric.compute(predictions=predictions, references=labels)
+    #    res['eval_mse'] = res['mse']
+    #    return res
 
 def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, dataset_mode, target_col='model_annots_str'):
     global global_num_labels, global_num_annots
@@ -154,10 +156,10 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         logging_strategy="steps",
         logging_steps=1,
         evaluation_strategy="steps",
-        num_train_epochs=5,
-        save_strategy="steps",
+        num_train_epochs=1,
+        save_strategy="epoch",
         save_total_limit=2,
-        load_best_model_at_end=True,
+        #load_best_model_at_end=True,
         #metric_for_best_model="mse",
         #greater_is_better=False,
         report_to="wandb",
@@ -191,7 +193,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
             tokenizer=tokenizer,
             train_dataset=tokenized_dataset["train"],
             eval_dataset=tokenized_dataset["val"],
-            #compute_metrics=compute_metrics,
+            #compute_loss=compute_metrics,
         )
         #optim_scheduler = self.trainer.create_optimizer_and_scheduler(num_training_steps=10) #num_training_steps) ########################################################
         #trainer.optimizer = optim_scheduler[0]
@@ -209,27 +211,32 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
             optimizers=(optimizer, scheduler),
             #compute_metrics=compute_metrics,
         )
+    #'''
     trainer.train()
 
-    trainer.save_model(f'{repository_id}.pt')
+    #trainer.save_model(f'{repository_id}.pt')
     trainer.create_model_card()
     trainer.push_to_hub()
-
+    return
     #print(trainer.evaluate(eval_dataset=tokenized_dataset["test"]))
     #print("-------PREDICT-----------")
+    '''
     p = trainer.predict(tokenized_dataset["test"])
-
-    pkl_filename = "test.pkl"
+    pkl_filename = f"{repository}.pkl"
 
     with open(pkl_filename, 'wb') as f:
         pickle.dump(p[1], f)
+    #'''
     #print(len(p['predictions']), len(p['predictions'][0]))
+    pkl_filename = "test.pkl"
     #print(len(p['label_ids']), len(p['label_ids'][0]))
     with open(pkl_filename, 'rb') as f:
+        print(f)
         p = pickle.load(f)
 
     correct = 0
     total = 0
+    print(p)
     print('total', len(p)*len(p[0]))
     for inst in range(len(p)):
         for annot in range(len(p[inst])):
@@ -241,7 +248,6 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     print('correct', correct)
     print('total', total)
     print('accuracy', correct/total)
-    '''
     # Example data (you would replace these with your own datasets)
     input_ids = torch.tensor([[1, 2, 3, 4, 5]])
     attention_mask = torch.tensor([[1, 1, 1, 1, 1]])
@@ -253,23 +259,6 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     criterion1 = nn.CrossEntropyLoss()
     criterion2 = nn.CrossEntropyLoss()
 
-    # Example targets (you would replace these with your own targets)
-    target1 = torch.tensor([0])
-    target2 = torch.tensor([1])
-
-    # Calculate losses
-    loss1 = criterion1(output1, target1)
-    loss2 = criterion2(output2, target2)
-
-    # Total loss for joint training
-    total_loss = loss1 + loss2
-
-    # Backpropagation
-    total_loss.backward()
-
-    # Update model parameters
-    optimizer.step()
-    ''
     def set_training_var(self, repository_id, compute_metrics):
         no_decay = ['bias', 'LayerNorm.weight']
         optimizer_grouped_parameters = [
@@ -317,8 +306,24 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     #    #metric_key_prefix=""
     #)
     #'''
-model_id = "roberta-large"
-for dn in ['SChem5Labels', 'Sentiment', 'SBIC', 'ghc']:
+if __name__ == "__main__":
+    # get args
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model_id", type=str, default="roberta-large")
+    parser.add_argument("--dataset_name", type=str, default="SChem5Labels")
+    parser.add_argument("--filename", type=str, default="../data/intramodel_data.csv")
+    parser.add_argument("--col_for_num_labels", type=str, default="model_annots")
+    parser.add_argument("--dataset_mode", type=str, default="sorted")
+    parser.add_argument("--target_col", type=str, default="model_annots")
+    args = parser.parse_args()
+    if args.filename == "../data/intramodel_data.csv":
+        args.remove_columns = ['index', 'dataset_name', 'text', 'text_ind', 'prompt', 'params', 'human_annots', 'model_annots']
+    else:
+        args.remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots']
+    main(args.filename, args.model_id, args.dataset_name, args.remove_columns, args.col_for_num_labels, args.dataset_mode, args.target_col)
+    '''
+    #for dn in ['SChem5Labels', 'Sentiment', 'SBIC', 'ghc']:
     #for m in ['frequency', 'dataset-frequency']:
     for m in ['sorted']:
     #for m in ['dataset-frequency']:
@@ -329,7 +334,6 @@ for dn in ['SChem5Labels', 'Sentiment', 'SBIC', 'ghc']:
              col_for_num_labels = "model_annots",
              target_col='model_annots',
              dataset_mode = m)
-        '''
         main(filename = '../data/intermodel_data.csv', 
              model_id = model_id,
              dataset_name = dn,
@@ -351,4 +355,4 @@ for dn in ['SChem5Labels', 'Sentiment', 'SBIC', 'ghc']:
              col_for_num_labels = "human_annots",
              dataset_mode = m,
              target_col = "human_annots")
-        '''
+    '''
