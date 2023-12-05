@@ -68,7 +68,7 @@ class MultiTaskRobertaModel(nn.Module):
     def __init__(self, roberta_name, num_annots, num_classes):
         super(MultiTaskRobertaModel, self).__init__()
         self.roberta = RobertaModel.from_pretrained(roberta_name,).to(accelerator.device)
-        #self.config = self.roberta.config
+        self.config = self.roberta.config
         self.classifiers = nn.ModuleList([nn.Linear(self.roberta.config.hidden_size, num_classes).to(accelerator.device) for _ in range(num_annots)])
         self.device = accelerator.device
 
@@ -196,7 +196,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     trainer.create_model_card()
     trainer.push_to_hub()
     p = trainer.predict(tokenized_dataset["test"])
-    pkl_filename = f"{repository}.pkl"
+    pkl_filename = f"{repository_id}.pkl"
     print(p[1])
 
     with open(pkl_filename, 'wb') as f:
