@@ -69,7 +69,7 @@ class MultiTaskRobertaModel(nn.Module):
         super(MultiTaskRobertaModel, self).__init__()
         self.roberta = RobertaModel.from_pretrained(roberta_name,).to(accelerator.device)
         #self.config = self.roberta.config
-        self.classifiers = [nn.Linear(self.roberta.config.hidden_size, num_classes).to(accelerator.device) for _ in range(num_annots)]
+        self.classifiers = nn.ModuleList([nn.Linear(self.roberta.config.hidden_size, num_classes).to(accelerator.device) for _ in range(num_annots)])
         self.device = accelerator.device
 
     def forward(self, input_ids, attention_mask, labels=[]):
@@ -110,13 +110,14 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     global_num_annots = utils.get_num_annots(dataset_name)
     BATCH_SIZE = utils.get_batch_size(dataset_name)
     model = MultiTaskRobertaModel(model_id, global_num_annots, global_num_labels).to(accelerator.device)
-    #model = nn.DataParallel(model)
     tokenizer = RobertaTokenizer.from_pretrained(model_id)
     tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, tokenizer, col_for_num_labels, remove_columns=remove_columns, mode=dataset_mode, target_col=target_col)
     no_decay = ['bias', 'LayerNorm.weight']
     optimizer_grouped_parameters = [
         {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
-        {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
+        {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0},
+        {"params": model.roberta.parameters()},
+        {"params": model.classifiers.parameters()}
     ]
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
     num_training_steps = int(len(tokenized_dataset["train"])/BATCH_SIZE) + 1000
@@ -149,7 +150,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         logging_strategy="steps",
         logging_steps=1,
         evaluation_strategy="steps",
-        num_train_epochs=5,
+        num_train_epochs=3,
         save_strategy="epoch",
         save_total_limit=2,
         #load_best_model_at_end=True,
@@ -194,15 +195,18 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     #trainer.save_model(f'{repository_id}.pt')
     trainer.create_model_card()
     trainer.push_to_hub()
-    return
-    #print(trainer.evaluate(eval_dataset=tokenized_dataset["test"]))
-    #print("-------PREDICT-----------")
-    '''
     p = trainer.predict(tokenized_dataset["test"])
     pkl_filename = f"{repository}.pkl"
+    print(p[1])
 
     with open(pkl_filename, 'wb') as f:
         pickle.dump(p[1], f)
+    return
+
+
+    #print(trainer.evaluate(eval_dataset=tokenized_dataset["test"]))
+    #print("-------PREDICT-----------")
+    '''
     #'''
     #print(len(p['predictions']), len(p['predictions'][0]))
     pkl_filename = "test.pkl"
@@ -288,7 +292,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_id", type=str, default="roberta-base")
     parser.add_argument("--dataset_name", type=str, default="SChem5Labels")
-    parser.add_argument("--filename", type=str, default="../data/intramodel_data.csv")
+    parser.add_argument("--filename", type=str, default="../data/intermodel_data.csv")
     parser.add_argument("--col_for_num_labels", type=str, default="model_annots")
     parser.add_argument("--dataset_mode", type=str, default="sorted")
     parser.add_argument("--target_col", type=str, default="model_annots")
