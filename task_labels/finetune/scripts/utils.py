@@ -5,11 +5,12 @@ from datasets import Dataset, DatasetDict
 from torch.utils.data import DataLoader
 import torch
 from accelerate import Accelerator
-accelerator = Accelerator()
 import random
 from collections import Counter
 BATCH_SIZE = -1
 RANDOM_SEED = 42
+from accelerate import Accelerator, DistributedType, DeepSpeedPlugin
+from accelerate.state import AcceleratorState
 
 def get_batch_size(dataset_name):
     # 1 when model is xl+
@@ -21,6 +22,20 @@ def get_batch_size(dataset_name):
     else:
         raise Exception("dataset_name not supported or not entered")
     return BATCH_SIZE
+
+def get_deepspeed_plugin():
+    deepspeed_plugin = DeepSpeedPlugin(zero_stage=3, gradient_accumulation_steps=2)
+    return deepspeed_plugin
+
+def get_accelerator(deepspeed_plugin=None):
+    #if not deepspeed_plugin:
+    #    deepspeed_plugin = get_deepspeed_plugin()
+    #print(deepspeed_plugin)
+    #accelerator = Accelerator(mixed_precision='fp16', deepspeed_plugin=deepspeed_plugin)
+    accelerator = Accelerator()
+    return accelerator
+accelerator = get_accelerator() 
+
 
 def seed_init_fn(seed):
     np.random.seed(seed)
