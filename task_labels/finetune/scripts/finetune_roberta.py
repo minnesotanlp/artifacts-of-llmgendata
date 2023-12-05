@@ -28,7 +28,7 @@ from transformers import (
     DataCollatorForSeq2Seq, AutoModelForSeq2SeqLM,
     AutoTokenizer, AutoModelForCausalLM, MistralForCausalLM,
     Trainer, TrainingArguments, Seq2SeqTrainer, Seq2SeqTrainingArguments,
-    BitsAndBytesConfig,
+    BitsAndBytesConfig, PreTrainedModel, PreTrainedTokenizer, RobertaConfig,
     )
 import pickle
 #from peft import get_peft_model, LoraConfig, TaskType, prepare_model_for_kbit_training
@@ -64,13 +64,12 @@ class CustomValueDistanceLoss(nn.Module):
         return loss
 val_dist_fct = CustomValueDistanceLoss()
 
-class MultiTaskRobertaModel(nn.Module):
-    def __init__(self, roberta_name, num_annots, num_classes):
-        super(MultiTaskRobertaModel, self).__init__()
-        self.roberta = RobertaModel.from_pretrained(roberta_name,).to(accelerator.device)
+class MultiTaskRobertaModel(PreTrainedModel):
+    def __init__(self, roberta_name, num_annots, num_classes, config):
+        super(MultiTaskRobertaModel, self).__init__(config)
+        self.roberta = RobertaModel.from_pretrained(roberta_name).to(accelerator.device)
         #self.config = self.roberta.config
         self.classifiers = [nn.Linear(self.roberta.config.hidden_size, num_classes).to(accelerator.device) for _ in range(num_annots)]
-        self.device = accelerator.device
 
     def forward(self, input_ids, attention_mask, labels=[]):
         outputs = self.roberta(input_ids=input_ids, attention_mask=attention_mask)
@@ -109,7 +108,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     global_num_labels = utils.get_num_labels(dataset_name)
     global_num_annots = utils.get_num_annots(dataset_name)
     BATCH_SIZE = utils.get_batch_size(dataset_name)
-    model = MultiTaskRobertaModel(model_id, global_num_annots, global_num_labels).to(accelerator.device)
+    model = MultiTaskRobertaModel(model_id, global_num_annots, global_num_labels, config=RobertaConfig.from_pretrained('roberta-base')).to(accelerator.device)
     #model = nn.DataParallel(model)
     tokenizer = RobertaTokenizer.from_pretrained(model_id)
     tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, tokenizer, col_for_num_labels, remove_columns=remove_columns, mode=dataset_mode, target_col=target_col)
@@ -149,7 +148,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         logging_strategy="steps",
         logging_steps=1,
         evaluation_strategy="steps",
-        num_train_epochs=5,
+        num_train_epochs=3,
         save_strategy="epoch",
         save_total_limit=2,
         #load_best_model_at_end=True,
@@ -191,7 +190,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     #'''
     trainer.train()
 
-    #trainer.save_model(f'{repository_id}.pt')
+    trainer.save_model(f'{repository_id}.pt')
     trainer.create_model_card()
     trainer.push_to_hub()
     return
