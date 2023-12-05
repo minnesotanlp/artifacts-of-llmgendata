@@ -8,7 +8,7 @@ class MultiTaskRobertaModel(PreTrainedModel):
         super(MultiTaskRobertaModel, self).__init__(RobertaConfig())
         self.roberta = RobertaModel.from_pretrained(roberta_name,).to(accelerator.device)
         self.config = self.roberta.config
-        self.classifiers = [nn.Linear(self.roberta.config.hidden_size, num_classes).to(accelerator.device) for _ in range(num_annots)]
+        self.classifiers = nn.ModuleList([nn.Linear(self.roberta.config.hidden_size, num_classes).to(accelerator.device) for _ in range(num_annots)])
 
     def forward(self, input_ids, attention_mask, labels=[]):
         outputs = self.roberta(input_ids=input_ids, attention_mask=attention_mask)
