@@ -52,6 +52,7 @@ from transformers import RobertaForSequenceClassification, RobertaTokenizer, Rob
 alpha = 0.5 # for the loss function 
 import utils
 accelerator = utils.get_accelerator()
+from evaluate import load
 
 class CustomValueDistanceLoss(nn.Module):
     def __init__(self):
@@ -66,6 +67,7 @@ val_dist_fct = CustomValueDistanceLoss()
 
 class MultiTaskRobertaModel(nn.Module):
     def __init__(self, roberta_name, num_annots, num_classes):
+        # both roberta and linear layers show up in model.named_parameters()
         super(MultiTaskRobertaModel, self).__init__()
         self.roberta = RobertaModel.from_pretrained(roberta_name,).to(accelerator.device)
         self.config = self.roberta.config
@@ -83,6 +85,10 @@ class CustomTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False):
         labels = inputs.pop("labels")
         outputs = model(**inputs.to(accelerator.device))
+        print('*************************************')
+        for layer in model.classifiers.named_parameters():
+            if 'weight' in layer[0]:
+                print(torch.sum(layer[1]).item())
         loss = 0
         # sum up losses from all heads
         for i in range(len(labels)):
@@ -95,14 +101,11 @@ class CustomTrainer(Trainer):
                 loss += alpha * ce + (1-alpha) * dist 
         return (loss, outputs) if return_outputs else loss
 
-    #def compute_metrics(self, eval_pred):
-    #    print("EVAL PRED", eval_pred)
-    #    predictions, labels = eval_pred
-    #    #print(predictions)
-    ##    #print(labels)
-    #    res = mse_metric.compute(predictions=predictions, references=labels)
-    #    res['eval_mse'] = res['mse']
-    #    return res
+def compute_metrics(eval_preds):
+    metric = evaluate.load("f1")
+    logits, labels = eval_preds
+    predictions = np.argmax(logits, axis=-1)
+    return metric.compute(predictions=predictions, references=labels)
 
 def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, dataset_mode, target_col='model_annots_str'):
     global global_num_labels, global_num_annots
@@ -111,30 +114,38 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     BATCH_SIZE = utils.get_batch_size(dataset_name)
     model = MultiTaskRobertaModel(model_id, global_num_annots, global_num_labels).to(accelerator.device)
     tokenizer = RobertaTokenizer.from_pretrained(model_id)
+
+    # take subset of data
     tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, tokenizer, col_for_num_labels, remove_columns=remove_columns, mode=dataset_mode, target_col=target_col)
+    # choose random numbers between 0 and len(tokenized_dataset[split])
+    train_ind = random.sample(range(len(tokenized_dataset["train"])), 5000)
+    val_ind = random.sample(range(len(tokenized_dataset["val"])), 500)
+    test_ind = random.sample(range(len(tokenized_dataset["test"])), 500)
+    tokenized_dataset["train"] = tokenized_dataset["train"].select(train_ind)
+    tokenized_dataset["val"] = tokenized_dataset["val"].select(val_ind)
+    tokenized_dataset["test"] = tokenized_dataset["test"].select(test_ind)
+
     no_decay = ['bias', 'LayerNorm.weight']
     optimizer_grouped_parameters = [
         {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
         {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0},
-        {"params": model.roberta.parameters()},
-        {"params": model.classifiers.parameters()}
     ]
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
+    optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=LR)
     num_training_steps = int(len(tokenized_dataset["train"])/BATCH_SIZE) + 1000
     num_warmup_steps = num_training_steps * 0.1
     #scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, NUM_CYCLES)
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps)
 
     # WHEN DEBUGGING 
-    #tokenized_dataset["train"] = tokenized_dataset["train"].select(range(min(100, len(tokenized_dataset["train"]))))
-    #tokenized_dataset["val"] = tokenized_dataset["val"].select(range(min(10, len(tokenized_dataset["val"]))))
-    #tokenized_dataset["test"] = tokenized_dataset["test"].select(range(min(10, len(tokenized_dataset["test"]))))
+    tokenized_dataset["train"] = tokenized_dataset["train"].select(range(min(100, len(tokenized_dataset["train"]))))
+    tokenized_dataset["val"] = tokenized_dataset["val"].select(range(min(10, len(tokenized_dataset["val"]))))
+    tokenized_dataset["test"] = tokenized_dataset["test"].select(range(min(10, len(tokenized_dataset["test"]))))
 
     if 'intra' in filename: 
         # for the non-batch size stuff, we used a batch size of 5000, which worked horribly for the bigger models
-        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra-{dataset_mode}-{target_col.replace('_annots_str', '')}-cross-ent"
+        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra-{dataset_mode}-{target_col.replace('_annots_str', '')}"
     else:
-        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter-{dataset_mode}-{target_col.replace('_annots_str', '')}-cross-ent"
+        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter-{dataset_mode}-{target_col.replace('_annots_str', '')}"
 
     training_args = TrainingArguments(
         output_dir=repository_id,
@@ -142,20 +153,18 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         per_device_eval_batch_size=BATCH_SIZE,
         #predict_with_generate=True, #comment out for sfttrainer
         #generation_config=self.model.generation_config, #commend out for sfttrainer
-        #bf16=True,############3
-        #fp16_full_eval=True,#########
         #dataloader_num_workers=accelerator.num_processes,
         learning_rate=LR,
         logging_dir=f"{repository_id}/logs",
         logging_strategy="steps",
         logging_steps=1,
         evaluation_strategy="steps",
-        num_train_epochs=3,
+        num_train_epochs=5,
         save_strategy="epoch",
         save_total_limit=2,
-        #load_best_model_at_end=True,
-        #metric_for_best_model="mse",
-        #greater_is_better=False,
+        load_best_model_at_end=True,
+        metric_for_best_model="f1",
+        greater_is_better=True,
         report_to="wandb",
         push_to_hub=True,
         include_inputs_for_metrics=True,
@@ -163,9 +172,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         hub_model_id=repository_id,
         hub_token=HfFolder.get_token(),
         remove_unused_columns = False,#"Mistral" in self.model_name,
-        #generation_config=generation_config,
     )
-    #training_args._n_gpu = 2
     data_collator = DataCollatorWithPadding(
         tokenizer=tokenizer, 
         pad_to_multiple_of=8
@@ -187,20 +194,19 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         train_dataset=tokenized_dataset["train"],
         eval_dataset=tokenized_dataset["val"],
         optimizers=(optimizer, scheduler),
-        #compute_metrics=compute_metrics,
+        compute_metrics=compute_metrics,
     )
-    #'''
     trainer.train()
 
     #trainer.save_model(f'{repository_id}.pt')
     trainer.create_model_card()
     trainer.push_to_hub()
     p = trainer.predict(tokenized_dataset["test"])
-    pkl_filename = f"{repository_id}.pkl"
+    filename = f"{repository_id}.txt"
     print(p[1])
 
-    with open(pkl_filename, 'wb') as f:
-        pickle.dump(p[1], f)
+    with open(pkl_filename, 'w') as f:
+        f.writelines(p[1])
     return
 
 
@@ -287,6 +293,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     #)
     #'''
 if __name__ == "__main__":
+    '''
     # get args
     import argparse
     parser = argparse.ArgumentParser()
@@ -298,10 +305,33 @@ if __name__ == "__main__":
     parser.add_argument("--target_col", type=str, default="model_annots")
     args = parser.parse_args()
     if args.filename == "../data/intramodel_data.csv":
-        args.remove_columns = ['index', 'dataset_name', 'text', 'text_ind', 'prompt', 'params', 'human_annots', 'model_annots']
+        args.remove_columns = ['index', 'dataset_name', 'text', 'text_ind', 'prompt', 'params']
     else:
-        args.remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots', 'model_name', 'text', 'index', 'human_annots']
+        args.remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_name', 'text', 'index']
     main(args.filename, args.model_id, args.dataset_name, args.remove_columns, args.col_for_num_labels, args.dataset_mode, args.target_col)
+    '''
+    for dataset_name in ['SChem5Labels', 'Sentiment', 'SBIC', 'ghc']:
+        for m in ['frequency', 'dataset-frequency', 'shuffle', 'sorted']:
+            for target_col in ['human_annots', 'model_annots']:
+                #first_order([dataset_name], 'minority')
+                #first_order([dataset_name], 'all')
+                #second_order([dataset_name])
+                main(filename = '../data/intermodel_data.csv',
+                     model_id = 'roberta-base',
+                     dataset_name = dataset_name,
+                     remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
+                     col_for_num_labels = "human_annots",
+                     dataset_mode = m,
+                     target_col = target_col)
+                main(filename = '../data/intramodel_data.csv',
+                     model_id = 'roberta-base',
+                     dataset_name = dataset_name,
+                     remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'],
+                     col_for_num_labels = "model_annots",
+                     dataset_mode = m,
+                     target_col = target_col)
+                raise Exception()
+
     '''
     #for dn in ['SChem5Labels', 'Sentiment', 'SBIC', 'ghc']:
     #for m in ['frequency', 'dataset-frequency']:
