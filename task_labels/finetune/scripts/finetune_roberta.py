@@ -202,7 +202,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
     p = trainer.predict(tokenized_dataset["test"])
     e = trainer.evaluate(tokenized_dataset["test"])
-    filename = f"{repository_id}.pkl"
+    filename = f"results/{repository_id}.pkl"
     print(p[1])
     print(e)
 
@@ -227,8 +227,10 @@ if __name__ == "__main__":
         args.remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_name', 'text', 'index']
     main(args.filename, args.model_id, args.dataset_name, args.remove_columns, args.col_for_num_labels, args.dataset_mode, args.target_col)
     '''
-    for dataset_name in ['Sentiment', 'SBIC', 'ghc', 'SChem5Labels']:
-        for m in ['frequency']:#, 'dataset-frequency', 'shuffle', 'sorted']:
+    for dataset_name in ['Sentiment']:#, 'SBIC', 'ghc', 'SChem5Labels']:
+        #for m in ['dataset-frequency']:#, 'shuffle', 'sorted']:
+        for m in ['frequency']:#, 'sorted']:
+            #for m in ['shuffle']:#, 'sorted']:
             for target_col in ['human_annots', 'model_annots']:
                 #first_order([dataset_name], 'minority')
                 #first_order([dataset_name], 'all')

@@ -66,7 +66,11 @@ def get_num_labels(dataset_name):
 
 def str_to_lst(x):
     # assume string that looks like list of numbers e.g. "[1, 2, 3]"
-    return x[1:-1].replace(" ", "").replace("nan", "").replace(".", "").replace("'", "").replace('"', "")
+    if type(x) == list:
+        x = ''.join([str(el) for el in x])
+    if x[0] == '[':
+        x = x[1:-1]
+    return list(x.replace(" ", "").replace("nan", "").replace(".", "").replace("'", "").replace('"', ""))       
 
 def format_dataset_roberta(filename, dataset_name, mode="sorted"):
     np.random.seed(RANDOM_SEED)
@@ -111,24 +115,24 @@ def format_dataset_roberta(filename, dataset_name, mode="sorted"):
                 #print("row_freq_dict", row_freq_dict)
                 new_str = ''.join([str(k)*row_freq_dict.get(k, 0) for k in freq_dict.keys()])
                 df[col][i] = [int(el) for el in new_str]
-                print("dataset freq", df[col][i])
-                raise Exception()
+            print("dataset freq", df[col])
+            raise Exception()
     elif "frequency" in mode:# [frequency, reverse_frequency]
         for col in ['human_annots', 'model_annots']:
             for i in range(df[col].shape[0]):
                 this_str = (df[col][i])
+                print("BEFORE", this_str)
                 # adding 1 of each label so it shows up in final string - won't mess up frequency order
                 freq_dict = dict(Counter([row for row in this_str]))
                 freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
                 new_str = ''.join([str(k)*freq_dict[k] for k in freq_dict.keys()])
                 df[col][i] = [int(el) for el in new_str]
+                print("AFTER", df[col][i])
     elif mode == "shuffle":
         for col in ['human_annots', 'model_annots']:
             for i in range(df[col].shape[0]):
                 x = str_to_lst(df[col][i])
                 random.shuffle(x)
-                print('shuffle', x)
-                raise Exception()
 
     # pad/truncate here since we always want the padding to come at the end
     for col in ['human_annots', 'model_annots']:
@@ -216,6 +220,7 @@ def split(df, suffix=''):
     train_data.to_pickle(f"train_data_{suffix}.pkl")
     val_data.to_pickle(f"val_data_{suffix}.pkl")
     test_data.to_pickle(f"test_data_{suffix}.pkl")
+    print("train_data", len(train_data), type(train_data))
     return DatasetDict({
         "train": Dataset.from_pandas(train_data),
         "val": Dataset.from_pandas(val_data),
