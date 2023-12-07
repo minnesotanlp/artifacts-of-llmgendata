@@ -92,44 +92,30 @@ def format_dataset_roberta(filename, dataset_name, mode="sorted"):
             if len(df[col][i]) > num_annots:
                 idx = random.sample(range(len(df[col][i])), k=num_annots)
                 df[col][i] = [x for i, x in enumerate(df[col][i]) if i in idx]
-    print("ORIGINAL", df['human_annots'][0])
-    print("ORIGINAL", df['model_annots'][0])
     if mode == "sorted":
         for col in ['human_annots', 'model_annots']:
-            #df[col] = df[col].apply(lambda x: sorted([i if i != 'nan' else -1 for i in np.fromstring(x[1:-1].replace('.',''), dtype=int, sep=' ')]))
             df[col] = df[col].apply(lambda x: sorted([int(el) for el in x]))
-            print('sorted', df[col][0])
-            raise Exception()
     elif "dataset-frequency" in mode:# [frequency, reverse_frequency]
         for col in ['human_annots', 'model_annots']:
             all_annots = [str_to_lst(row) for row in df[col]]
-            all_annots = ''.join(all_annots)
-            all_annots = [annot for annot in all_annots]
+            all_annots = [element for row in all_annots for element in row]
             freq_dict = dict(Counter(all_annots))
             freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="dataset-frequency")))
             for i in range(df[col].shape[0]):
-                this_str = df[col][i][1:-1].replace(" ", "").replace("nan", "").replace(".", "")
                 # adding 1 of each label so it shows up in final string - won't mess up frequency order
-                row_freq_dict = dict(Counter([el for el in this_str]))
+                row_freq_dict = dict(Counter([el for el in str_to_lst(df[col][i])]))
                 #row_freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
                 #print("row_freq_dict", row_freq_dict)
-                print(row_freq_dict.keys())
-                print(freq_dict.keys())
                 new_str = ''.join([str(k)*row_freq_dict.get(k, 0) for k in freq_dict.keys()])
                 df[col][i] = [int(el) for el in new_str]
-            print("dataset freq", df[col])
-            raise Exception()
     elif "frequency" in mode:# [frequency, reverse_frequency]
         for col in ['human_annots', 'model_annots']:
             for i in range(df[col].shape[0]):
                 this_str = (df[col][i])
-                print("BEFORE", this_str)
-                # adding 1 of each label so it shows up in final string - won't mess up frequency order
                 freq_dict = dict(Counter([row for row in this_str]))
                 freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
                 new_str = ''.join([str(k)*freq_dict[k] for k in freq_dict.keys()])
                 df[col][i] = [int(el) for el in new_str]
-                print("AFTER", df[col][i])
     elif mode == "shuffle":
         for col in ['human_annots', 'model_annots']:
             for i in range(df[col].shape[0]):

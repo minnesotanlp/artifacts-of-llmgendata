@@ -76,7 +76,6 @@ class MultiTaskRobertaModel(nn.Module):
         last_hidden_state = outputs.last_hidden_state[:, 0, :]  # Use the [CLS] token representation
         outputs = [classifier(last_hidden_state) for classifier in self.classifiers]
         return outputs
-'''
 
 class CustomTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False):
@@ -118,12 +117,6 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         tokenized_dataset["test"] = tokenized_dataset["test"].select(test_ind)
 
     no_decay = ['bias', 'LayerNorm.weight']
-
-    print("model", model)
-    print("model.parameters", len(model.parameters()))
-    print("model.named_parameters", len(model.named_parameters()))
-    print("model.roberta.parameters", len(model.roberta.parameters()))
-    print("model.classifiers.parameters", len(model.classifiers.parameters()))
 
     optimizer_grouped_parameters = [
         {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
@@ -234,9 +227,10 @@ if __name__ == "__main__":
         args.remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_name', 'text', 'index']
     main(args.filename, args.model_id, args.dataset_name, args.remove_columns, args.col_for_num_labels, args.dataset_mode, args.target_col)
     '''
-    for dataset_name in ['Sentiment']:#, 'SBIC', 'ghc', 'SChem5Labels']:
-        #for m in ['dataset-frequency']:#, 'shuffle', 'sorted']:
-        for m in ['frequency']:#, 'sorted']:
+    for dataset_name in ['Sentiment', 'SBIC', 'ghc', 'SChem5Labels']:
+        #for m in ['shuffle']:
+        for m in ['dataset-frequency']:#, 'shuffle', 'sorted']:
+        #for m in ['frequency']:#, 'sorted']:
             #for m in ['shuffle']:#, 'sorted']:
             for target_col in ['human_annots', 'model_annots']:
                 #first_order([dataset_name], 'minority')
