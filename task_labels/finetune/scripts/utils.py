@@ -14,7 +14,6 @@ from accelerate.state import AcceleratorState
 
 def get_batch_size(dataset_name):
     # 1 when model is xl+
-    return 16
     if dataset_name in ['SChem5Labels', 'Sentiment']:
         BATCH_SIZE = 32
     elif dataset_name in ['SBIC', 'ghc']:
@@ -72,8 +71,13 @@ def str_to_lst(x):
 def format_dataset_roberta(filename, dataset_name, mode="sorted"):
     np.random.seed(RANDOM_SEED)
     num_annots = get_num_annots(dataset_name)
+    print("========================FORMAT DATASET ROBERTA============")
+    print("dataset_name", dataset_name)
+    print("num_annots", num_annots)
+    print("num_labels", get_num_labels(dataset_name))
     df = pd.read_csv(filename)
     df = df[df['dataset_name'] == dataset_name]
+
     df.reset_index(inplace=True)
     # since nans are already removed here (still checking below just in case), we may have lists that are shorter than expected
 
@@ -84,11 +88,14 @@ def format_dataset_roberta(filename, dataset_name, mode="sorted"):
             if len(df[col][i]) > num_annots:
                 idx = random.sample(range(len(df[col][i])), k=num_annots)
                 df[col][i] = [x for i, x in enumerate(df[col][i]) if i in idx]
-
+    print("ORIGINAL", df['human_annots'][0])
+    print("ORIGINAL", df['model_annots'][0])
     if mode == "sorted":
         for col in ['human_annots', 'model_annots']:
             #df[col] = df[col].apply(lambda x: sorted([i if i != 'nan' else -1 for i in np.fromstring(x[1:-1].replace('.',''), dtype=int, sep=' ')]))
             df[col] = df[col].apply(lambda x: sorted([int(el) for el in x]))
+            print('sorted', df[col][0])
+            raise Exception()
     elif "dataset-frequency" in mode:# [frequency, reverse_frequency]
         for col in ['human_annots', 'model_annots']:
             all_annots = [str_to_lst(row) for row in df[col]]
@@ -99,18 +106,18 @@ def format_dataset_roberta(filename, dataset_name, mode="sorted"):
             for i in range(df[col].shape[0]):
                 this_str = df[col][i][1:-1].replace(" ", "").replace("nan", "").replace(".", "")
                 # adding 1 of each label so it shows up in final string - won't mess up frequency order
-                #this_str += ''.join([str(num) for num in range(get_num_labels(dataset_name))])
                 row_freq_dict = dict(Counter([el for el in this_str]))
                 #row_freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
                 #print("row_freq_dict", row_freq_dict)
                 new_str = ''.join([str(k)*row_freq_dict.get(k, 0) for k in freq_dict.keys()])
                 df[col][i] = [int(el) for el in new_str]
+                print("dataset freq", df[col][i])
+                raise Exception()
     elif "frequency" in mode:# [frequency, reverse_frequency]
         for col in ['human_annots', 'model_annots']:
             for i in range(df[col].shape[0]):
                 this_str = (df[col][i])
                 # adding 1 of each label so it shows up in final string - won't mess up frequency order
-                #this_str += ''.join([str(num) for num in range(get_num_labels(dataset_name))])
                 freq_dict = dict(Counter([row for row in this_str]))
                 freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
                 new_str = ''.join([str(k)*freq_dict[k] for k in freq_dict.keys()])
@@ -120,6 +127,8 @@ def format_dataset_roberta(filename, dataset_name, mode="sorted"):
             for i in range(df[col].shape[0]):
                 x = str_to_lst(df[col][i])
                 random.shuffle(x)
+                print('shuffle', x)
+                raise Exception()
 
     # pad/truncate here since we always want the padding to come at the end
     for col in ['human_annots', 'model_annots']:
@@ -134,11 +143,13 @@ def format_dataset(filename, dataset_name, mode="sorted"):
     df = df[df['dataset_name'] == dataset_name]
     df.reset_index(inplace=True)
     # since nans are already removed here (still checking below just in case), we may have lists that are shorter than expected
-    if mode == "sorted":
+    if True or mode == "sorted":
         for col in ['human_annots', 'model_annots']:
             df[col] = df[col].apply(lambda x: sorted([i if i != 'nan' else -1 for i in np.fromstring(x[1:-1].replace('.',''), dtype=int, sep=' ')]))
             df[f'{col}_str'] = df[col].apply(lambda x: " ".join([str(i) for i in x]))
-    elif "dataset-frequency" in mode:# [frequency, reverse_frequency]
+            print('sorted', df[f'{col}_str'][0])
+    if True or "dataset-frequency" in mode:# [frequency, reverse_frequency]
+    #elif "dataset-frequency" in mode:# [frequency, reverse_frequency]
         for col in ['human_annots', 'model_annots']:
             all_annots = [row[1:-1].replace(" ", "").replace("nan", "").replace(".", "") for row in df[col]]
             all_annots = ''.join(all_annots)
@@ -148,7 +159,6 @@ def format_dataset(filename, dataset_name, mode="sorted"):
             for i in range(df[col].shape[0]):
                 this_str = df[col][i][1:-1].replace(" ", "").replace("nan", "").replace(".", "")
                 # adding 1 of each label so it shows up in final string - won't mess up frequency order
-                #this_str += ''.join([str(num) for num in range(get_num_labels(dataset_name))])
                 row_freq_dict = dict(Counter([el for el in this_str]))
                 #row_freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
                 #print("row_freq_dict", row_freq_dict)
@@ -156,18 +166,21 @@ def format_dataset(filename, dataset_name, mode="sorted"):
                 #print("NEW_STR", new_str)
                 df[col][i] = list(new_str)
             df[f'{col}_str'] = df[col].apply(lambda x: (' '.join(list(x))))
-    elif "frequency" in mode:# [frequency, reverse_frequency]
+            print('dataset freq', df[f'{col}_str'][0])
+    #elif "frequency" in mode:# [frequency, reverse_frequency]
+    if True or "frequency" in mode:# [frequency, reverse_frequency]
         for col in ['human_annots', 'model_annots']:
             for i in range(df[col].shape[0]):
                 this_str = df[col][i][1:-1].replace(" ", "").replace("nan", "").replace(".", "")
                 # adding 1 of each label so it shows up in final string - won't mess up frequency order
-                #this_str += ''.join([str(num) for num in range(get_num_labels(dataset_name))])
                 freq_dict = dict(Counter([row for row in this_str]))
                 freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
                 new_str = ' '.join([str(k)*freq_dict[k] for k in freq_dict.keys()])
                 df[col][i] = list(new_str)
             df[f'{col}_str'] = df[col].apply(lambda x: (' '.join(list(x))))
-    elif mode == "shuffle":
+            print('frequency', df[f'{col}_str'][0])
+    if True or mode == "shuffle":
+    #elif mode == "shuffle":
         for col in ['human_annots', 'model_annots']:
             for i in range(df[col].shape[0]):
                 x = df[col][i][1:-1].replace('.','').split()
@@ -175,7 +188,9 @@ def format_dataset(filename, dataset_name, mode="sorted"):
                 random.shuffle(x)
                 df[col][i] = [str(el) for el in x]
             df[f'{col}_str'] = df[col].apply(lambda x: (' '.join(list(x))))
+            print('shuffle', df[f'{col}_str'][0])
     # remove last sentence fragment for multi-label tasks
+    raise Exception()
     df['short_prompt'] = df['text'].apply(lambda x: 'Multi-label classification results: ' + x)
             #.replace("Sentence: ", "##### Sentence #####\n")\
             #.replace("Label options: ", "\n##### Labels options #####\n"))
@@ -275,24 +290,3 @@ def get_tokenized_data(filename, dataset, tokenizer, col_for_num_labels, remove_
             remove_columns=remove_columns,
             )#num_proc=accelerator.num_processes, )
     return tokenized_data
-
-def compute_metricsssss(eval_preds, tokenizer):
-    raise Exception("compute_metrics not being used----------------------")
-    import nltk 
-    preds, labels = eval_preds
-    if isinstance(preds, tuple):
-        preds = preds[0]
-    decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
-    decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
-
-    edit_distances = []
-    assert len(decoded_preds) == len(decoded_labels)
-    for i in range(len(decoded_preds)):
-        s1 = decoded_preds[i]
-        s2 = decoded_labels[i]
-        edit_distances.append(nltk.edit_distance(s1, s2))
-
-    # Some simple post-processing
-    #######################BEFORE AND AFTER ARE THE SAME #########################
-    return {'edit_distance': np.mean(edit_distances)}
-
