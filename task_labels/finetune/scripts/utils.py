@@ -103,6 +103,8 @@ def format_dataset_roberta(filename, dataset_name, mode="sorted"):
                 row_freq_dict = dict(Counter([el for el in this_str]))
                 #row_freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
                 #print("row_freq_dict", row_freq_dict)
+                print(row_freq_dict.keys())
+                print(freq_dict.keys())
                 new_str = ''.join([str(k)*row_freq_dict.get(k, 0) for k in freq_dict.keys()])
                 df[col][i] = [int(el) for el in new_str]
     elif "frequency" in mode:# [frequency, reverse_frequency]

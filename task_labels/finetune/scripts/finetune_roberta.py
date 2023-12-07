@@ -52,6 +52,7 @@ from transformers import RobertaForSequenceClassification, RobertaTokenizer, Rob
 alpha = 0.5 # for the loss function 
 import utils
 accelerator = utils.get_accelerator()
+from model import MultiTaskRobertaModel
 
 class CustomValueDistanceLoss(nn.Module):
     def __init__(self):
@@ -63,21 +64,20 @@ class CustomValueDistanceLoss(nn.Module):
         loss = 0.5 * torch.mean((y_true - y_pred)**2)
         return loss
 val_dist_fct = CustomValueDistanceLoss()
-
+'''
 class MultiTaskRobertaModel(PreTrainedModel):
     def __init__(self, roberta_name, num_annots, num_classes, config):
         super(MultiTaskRobertaModel, self).__init__(config)
         self.roberta = RobertaModel.from_pretrained(roberta_name).to(accelerator.device)
         self.config = self.roberta.config
         self.classifiers = nn.ModuleList([nn.Linear(self.roberta.config.hidden_size, num_classes).to(accelerator.device) for _ in range(num_annots)])
-        self.device = accelerator.device
 
     def forward(self, input_ids, attention_mask, labels=[]):
         outputs = self.roberta(input_ids=input_ids, attention_mask=attention_mask)
         last_hidden_state = outputs.last_hidden_state[:, 0, :]  # Use the [CLS] token representation
         outputs = [classifier(last_hidden_state) for classifier in self.classifiers]
         return outputs
-
+'''
 
 class CustomTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False):
@@ -109,10 +109,22 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     global_num_labels = utils.get_num_labels(dataset_name)
     global_num_annots = utils.get_num_annots(dataset_name)
     BATCH_SIZE = utils.get_batch_size(dataset_name)
-    model = MultiTaskRobertaModel(model_id, global_num_annots, global_num_labels, config=RobertaConfig.from_pretrained('roberta-base')).to(accelerator.device)
+    model = MultiTaskRobertaModel(model_id, global_num_annots, global_num_labels).to(accelerator.device)
     tokenizer = RobertaTokenizer.from_pretrained(model_id)
     tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, tokenizer, col_for_num_labels, remove_columns=remove_columns, mode=dataset_mode, target_col=target_col)
+    # remove attention column from dataset
+    # save tokenized dataset as pickle
+    with open(f'results/gold-{dataset_name}-{filename[-19:-14]}-{dataset_mode}-{target_col}.pkl', 'wb') as f:
+        pickle.dump(tokenized_dataset['test'].select_columns(['input_ids', 'labels']), f)
+    return
     no_decay = ['bias', 'LayerNorm.weight']
+
+    print("model", model)
+    print("model.parameters", len(model.parameters()))
+    print("model.named_parameters", len(model.named_parameters()))
+    print("model.roberta.parameters", len(model.roberta.parameters()))
+    print("model.classifiers.parameters", len(model.classifiers.parameters()))
+
     optimizer_grouped_parameters = [
         {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
         {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0},
@@ -150,7 +162,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         logging_strategy="steps",
         logging_steps=1,
         evaluation_strategy="steps",
-        num_train_epochs=3,
+        num_train_epochs=5,
         save_strategy="epoch",
         save_total_limit=2,
         #load_best_model_at_end=True,
@@ -196,7 +208,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     trainer.create_model_card()
     trainer.push_to_hub()
     p = trainer.predict(tokenized_dataset["test"])
-    pkl_filename = f"{repository_id}.pkl"
+    pkl_filename = f"results/{repository_id}.pkl"
     print(p[1])
 
     with open(pkl_filename, 'wb') as f:
@@ -294,7 +306,8 @@ if __name__ == "__main__":
     parser.add_argument("--dataset_name", type=str, default="SChem5Labels")
     parser.add_argument("--filename", type=str, default="../data/intermodel_data.csv")
     parser.add_argument("--col_for_num_labels", type=str, default="model_annots")
-    parser.add_argument("--dataset_mode", type=str, default="sorted")
+    parser.add_argument("--dataset_mode", type=str, default="dataset-frequency")
+    #parser.add_argument("--dataset_mode", type=str, default="sorted")
     parser.add_argument("--target_col", type=str, default="model_annots")
     args = parser.parse_args()
     if args.filename == "../data/intramodel_data.csv":
