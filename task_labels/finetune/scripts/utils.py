@@ -255,6 +255,9 @@ def get_tokenized_data(filename, dataset, tokenizer, col_for_num_labels, remove_
         model_inputs = tokenizer(inputs, truncation=True, padding=True, max_length=max_source_length)
         if model_id == "roberta-base":
             # convert all missing/invalid values to -1 here
+            # sample[target] should be a list of labels
+            if type(sample[target]) == str:
+                sample[target] = eval(sample[target])
             model_inputs['labels'] = np.array(sample[target]).astype(int).tolist()
             for row_i in range(len(sample[target])):
                 for annot_i in range(len(sample[target][row_i])):
