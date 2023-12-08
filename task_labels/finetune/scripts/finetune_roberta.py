@@ -108,12 +108,21 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     tokenizer = RobertaTokenizer.from_pretrained(model_id)
 
     tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, tokenizer, col_for_num_labels, remove_columns=remove_columns, mode=dataset_mode, target_col=target_col)
+    if 'intra' in filename: 
+        # for the non-batch size stuff, we used a batch size of 5000, which worked horribly for the bigger models
+        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra-{dataset_mode}-{target_col.replace('_annots_str', '')}"
+    else:
+        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter-{dataset_mode}-{target_col.replace('_annots_str', '')}"
+
     # take subset of data if training is larger than 5000
     if len(tokenized_dataset["train"]) > 5000:
         # choose random numbers between 0 and len(tokenized_dataset[split])
+        random.seed(SEED)
         train_ind = random.sample(range(len(tokenized_dataset["train"])), 5000)
         val_ind = random.sample(range(len(tokenized_dataset["val"])), 500)
         test_ind = random.sample(range(len(tokenized_dataset["test"])), 500)
+        with open(f"{repository_id}-indices.pkl", 'wb') as f:
+            pickle.dump([train_ind, val_ind, test_ind], f)
         tokenized_dataset["train"] = tokenized_dataset["train"].select(train_ind)
         tokenized_dataset["val"] = tokenized_dataset["val"].select(val_ind)
         tokenized_dataset["test"] = tokenized_dataset["test"].select(test_ind)
@@ -134,11 +143,6 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     #tokenized_dataset["val"] = tokenized_dataset["val"].select(range(min(10, len(tokenized_dataset["val"]))))
     #tokenized_dataset["test"] = tokenized_dataset["test"].select(range(min(10, len(tokenized_dataset["test"]))))
 
-    if 'intra' in filename: 
-        # for the non-batch size stuff, we used a batch size of 5000, which worked horribly for the bigger models
-        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra-{dataset_mode}-{target_col.replace('_annots_str', '')}"
-    else:
-        repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter-{dataset_mode}-{target_col.replace('_annots_str', '')}"
 
     training_args = TrainingArguments(
         output_dir=repository_id,
@@ -202,7 +206,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
     p = trainer.predict(tokenized_dataset["test"])
     e = trainer.evaluate(tokenized_dataset["test"])
-    filename = f"results/{repository_id}.pkl"
+    filename = f"results_new/{repository_id}.pkl"
     print(p[1])
     print(e)
 
@@ -229,7 +233,7 @@ if __name__ == "__main__":
     '''
     for dataset_name in ['Sentiment', 'SBIC', 'ghc', 'SChem5Labels']:
         #for m in ['dataset-frequency']:#, 'shuffle', 'sorted']:
-        for m in ['shuffle']:
+        for m in ['shuffle', 'sorted', 'frequency', 'dataset-frequency']:
             #for m in ['shuffle']:#, 'sorted']:
             for target_col in ['human_annots', 'model_annots']:
                 #first_order([dataset_name], 'minority')
