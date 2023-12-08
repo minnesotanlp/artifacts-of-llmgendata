@@ -232,7 +232,7 @@ if __name__ == "__main__":
     main(args.filename, args.model_id, args.dataset_name, args.remove_columns, args.col_for_num_labels, args.dataset_mode, args.target_col)
     '''
     for dataset_name in ['Sentiment', 'SBIC', 'ghc', 'SChem5Labels']:
-        #for m in ['dataset-frequency']:#, 'shuffle', 'sorted']:
+        #for m in ['frequency']:#, 'shuffle', 'sorted']:
         for m in ['shuffle', 'sorted', 'frequency', 'dataset-frequency']:
             #for m in ['shuffle']:#, 'sorted']:
             for target_col in ['human_annots', 'model_annots']:

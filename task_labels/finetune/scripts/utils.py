@@ -100,32 +100,25 @@ def format_dataset_roberta(filename, dataset_name, mode="sorted"):
             df[col] = df[col].apply(lambda x: sorted([int(el) for el in x]))
     elif "dataset-frequency" in mode:# [frequency, reverse_frequency]
         for col in ['human_annots', 'model_annots']:
-            all_annots = [str_to_lst(row) for row in df[col]]
+            all_annots = np.array([str_to_lst(row) for row in df[col]]).flatten()
             all_annots = ''.join(all_annots)
             all_annots = [annot for annot in all_annots]
             freq_dict = dict(Counter(all_annots))
             freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="dataset-frequency")))
             for i in range(df[col].shape[0]):
-                this_str = df[col][i][1:-1].replace(" ", "").replace("nan", "").replace(".", "")
-                # adding 1 of each label so it shows up in final string - won't mess up frequency order
+                this_str = ''.join(df[col][i])
                 row_freq_dict = dict(Counter([el for el in this_str]))
-                #row_freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
-                #print("row_freq_dict", row_freq_dict)
                 new_str = ''.join([str(k)*row_freq_dict.get(k, 0) for k in freq_dict.keys()])
                 df[col][i] = [int(el) for el in new_str]
-            print("dataset freq", df[col])
-            raise Exception()
     elif "frequency" in mode:# [frequency, reverse_frequency]
+        # this is probably almost similar to shuffle when people are disagreeing
         for col in ['human_annots', 'model_annots']:
             for i in range(df[col].shape[0]):
                 this_str = (df[col][i])
-                print("BEFORE", this_str)
-                # adding 1 of each label so it shows up in final string - won't mess up frequency order
                 freq_dict = dict(Counter([row for row in this_str]))
                 freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
                 new_str = ''.join([str(k)*freq_dict[k] for k in freq_dict.keys()])
                 df[col][i] = [int(el) for el in new_str]
-                print("AFTER", df[col][i])
     elif mode == "shuffle":
         for col in ['human_annots', 'model_annots']:
             for i in range(df[col].shape[0]):
@@ -218,7 +211,9 @@ def split(df, suffix=''):
     train_data.to_pickle(f"train_data_{suffix}.pkl")
     val_data.to_pickle(f"val_data_{suffix}.pkl")
     test_data.to_pickle(f"test_data_{suffix}.pkl")
-    print("train_data", len(train_data), type(train_data))
+    train_data['model_annots'] = train_data['model_annots'].astype(str)
+    val_data['model_annots'] = val_data['model_annots'].astype(str)
+    test_data['model_annots'] = test_data['model_annots'].astype(str)
     return DatasetDict({
         "train": Dataset.from_pandas(train_data),
         "val": Dataset.from_pandas(val_data),
@@ -263,10 +258,10 @@ def get_tokenized_data(filename, dataset, tokenizer, col_for_num_labels, remove_
         model_inputs = tokenizer(inputs, truncation=True, padding=True, max_length=max_source_length)
         if model_id == "roberta-base":
             # convert all missing/invalid values to -1 here
-            model_inputs['labels'] = sample[target]
+            model_inputs['labels'] = np.array(sample[target]).astype(int).tolist()
             for row_i in range(len(sample[target])):
                 for annot_i in range(len(sample[target][row_i])):
-                    if not (0 <= sample[target][row_i][annot_i] and sample[target][row_i][annot_i] < num_labels):
+                    if not (0 <= int(sample[target][row_i][annot_i]) and int(sample[target][row_i][annot_i]) < num_labels):
                         model_inputs['labels'][row_i][annot_i] = -1
                 model_inputs['labels'][row_i] += [-1]*(num_annots - len(model_inputs['labels'][row_i]))
                     #else:
