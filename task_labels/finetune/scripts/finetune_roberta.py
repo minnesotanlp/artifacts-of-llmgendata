@@ -28,7 +28,7 @@ from transformers import (
     DataCollatorForSeq2Seq, AutoModelForSeq2SeqLM,
     AutoTokenizer, AutoModelForCausalLM, MistralForCausalLM,
     Trainer, TrainingArguments, Seq2SeqTrainer, Seq2SeqTrainingArguments,
-    BitsAndBytesConfig,
+    BitsAndBytesConfig, PreTrainedModel, PreTrainedTokenizer, RobertaConfig,
     )
 import pickle
 #from peft import get_peft_model, LoraConfig, TaskType, prepare_model_for_kbit_training
@@ -70,14 +70,12 @@ class MultiTaskRobertaModel(nn.Module):
         self.roberta = RobertaModel.from_pretrained(roberta_name,).to(accelerator.device)
         self.config = self.roberta.config
         self.classifiers = nn.ModuleList([nn.Linear(self.roberta.config.hidden_size, num_classes).to(accelerator.device) for _ in range(num_annots)])
-        self.device = accelerator.device
 
     def forward(self, input_ids, attention_mask, labels=[]):
         outputs = self.roberta(input_ids=input_ids, attention_mask=attention_mask)
         last_hidden_state = outputs.last_hidden_state[:, 0, :]  # Use the [CLS] token representation
         outputs = [classifier(last_hidden_state) for classifier in self.classifiers]
         return outputs
-
 
 class CustomTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False):
@@ -128,6 +126,7 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         tokenized_dataset["test"] = tokenized_dataset["test"].select(test_ind)
 
     no_decay = ['bias', 'LayerNorm.weight']
+
     optimizer_grouped_parameters = [
         {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
         {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0},
@@ -222,7 +221,8 @@ if __name__ == "__main__":
     parser.add_argument("--dataset_name", type=str, default="SChem5Labels")
     parser.add_argument("--filename", type=str, default="../data/intermodel_data.csv")
     parser.add_argument("--col_for_num_labels", type=str, default="model_annots")
-    parser.add_argument("--dataset_mode", type=str, default="sorted")
+    parser.add_argument("--dataset_mode", type=str, default="dataset-frequency")
+    #parser.add_argument("--dataset_mode", type=str, default="sorted")
     parser.add_argument("--target_col", type=str, default="model_annots")
     args = parser.parse_args()
     if args.filename == "../data/intramodel_data.csv":

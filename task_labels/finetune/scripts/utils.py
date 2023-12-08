@@ -92,11 +92,8 @@ def format_dataset_roberta(filename, dataset_name, mode="sorted"):
             if len(df[col][i]) > num_annots:
                 idx = random.sample(range(len(df[col][i])), k=num_annots)
                 df[col][i] = [x for i, x in enumerate(df[col][i]) if i in idx]
-    print("ORIGINAL", df['human_annots'][0])
-    print("ORIGINAL", df['model_annots'][0])
     if mode == "sorted":
         for col in ['human_annots', 'model_annots']:
-            #df[col] = df[col].apply(lambda x: sorted([i if i != 'nan' else -1 for i in np.fromstring(x[1:-1].replace('.',''), dtype=int, sep=' ')]))
             df[col] = df[col].apply(lambda x: sorted([int(el) for el in x]))
     elif "dataset-frequency" in mode:# [frequency, reverse_frequency]
         for col in ['human_annots', 'model_annots']:
