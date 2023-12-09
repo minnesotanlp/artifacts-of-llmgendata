@@ -54,49 +54,6 @@ def before_after_line_plots(res):
         plt.savefig(f"{dataset_name}-before-after.png")
         plt.figure().clear()
         plt.close()
-        '''
-        # gini coefficient style
-        fig, ax = plt.subplots()
-        plot_ind = 0
-        for m in res[dataset_name]:
-            for source in res[dataset_name][m]:
-                y_gold = []
-                y_pred = []
-                for i in range(1, num_labels):
-                    y_gold += [i]*res[dataset_name][m][source]['gold'].get(i-1,0)
-                    y_pred += [i]*res[dataset_name][m][source]['pred'].get(i-1,0)
-                y_gold = sorted(y_gold)
-                y_pred = sorted(y_pred)
-                #total_gold = sum(y_gold)
-                #total_pred = sum(y_pred)
-                tracker = 0 
-                new_y_gold = [0]
-                new_y_pred = [0]
-                x_gold = [0]
-                x_pred = [0]
-                for i in range(len(y_gold)):
-                    x_gold.append(i+1)
-                    tracker += y_gold[i]
-                    new_y_gold.append(tracker)
-                tracker = 0 
-                ax.plot(x_gold, new_y_gold, color=color_lst[plot_ind], marker=',', linestyle=line_lst[0], label=f'{m.replace("uency","")}-{source}-gold')
-                for i in range(len(y_pred)):
-                    x_pred.append(i+1)
-                    tracker += y_pred[i]
-                    new_y_pred.append(tracker)
-                ax.plot(x_pred, new_y_pred, color=color_lst[plot_ind], marker=',', linestyle=line_lst[1], label=f'{m.replace("uency","")}-{source}-pred')
-                plot_ind += 1
-        ax.legend()
-        # Add labels and a title
-        ax.set_xlabel('Labels')
-        ax.set_ylabel('Counts')
-        #ax.set_title('Lines Connecting Series of Points with Different Colors, Markers, and Patterns')
-
-        # Display the plot
-        plt.savefig(f"{dataset_name}-before-after-gini.png")
-        plt.figure().clear()
-        plt.close()
-        '''
 
 def movement_heatmap(mat):
     for dataset_name in mat:
@@ -172,20 +129,7 @@ def get_gold(grouping):
     m = 'frequency'
     for dataset_name in ['Sentiment', 'SBIC', 'ghc', 'SChem5Labels']:
         res[dataset_name] = {}
-        #with open (f'{dataset_name}-roberta-base-inter-dataset-{m}-human_annots-indices.pkl', 'rb') as f:
-        #    human_inds = pickle.load(f)[2] # third index has test set
-        #with open (f'{dataset_name}-roberta-base-inter-dataset-{m}-model_annots-indices.pkl', 'rb') as f:
-        #    model_inds = pickle.load(f)[2]
-        #with open(f'test_data_{dataset_name}.pkl', 'rb') as f:
-        #    test_data = pickle.load(f)
-        #    human_test_data = test_data.loc[:,'human_annots']
-        #    model_test_data = test_data.loc[:,'model_annots']
-        #    human_test_data = [human_test_data[i] for i in human_inds]
-        #    model_test_data = [model_test_data[i] for i in model_inds]
         df = read_csv(f'../data/{grouping}model_data.csv')
-        #df['human_annots'] = [np.array(row) for row in df['human_annots']]
-        #df['model_annots'] = [np.array(row) for row in df['model_annots']]
-
         res[dataset_name]['human'] = df['human_annots']
         res[dataset_name]['model'] = df['model_annots']
     return res
