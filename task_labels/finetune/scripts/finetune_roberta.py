@@ -96,7 +96,69 @@ class CustomTrainer(Trainer):
                 #print("ce", ce, "dist", dist, "labels", labels[i][j], "pred_label", pred_label)
                 loss += alpha * ce + (1-alpha) * dist 
         return (loss, outputs) if return_outputs else loss
+    '''
+    def predict_risako(
+        self, test_dataset: Dataset, ignore_keys: Optional[List[str]] = None, metric_key_prefix: str = "test"
+    ) -> PredictionOutput:
+        """
+        Run prediction and returns predictions and potential metrics.
 
+        Depending on the dataset and your use case, your test dataset may contain labels. In that case, this method
+        will also return metrics, like in `evaluate()`.
+
+        Args:
+            test_dataset (`Dataset`):
+                Dataset to run the predictions on. If it is an `datasets.Dataset`, columns not accepted by the
+                `model.forward()` method are automatically removed. Has to implement the method `__len__`
+            ignore_keys (`List[str]`, *optional*):
+                A list of keys in the output of your model (if it is a dictionary) that should be ignored when
+                gathering predictions.
+            metric_key_prefix (`str`, *optional*, defaults to `"test"`):
+                An optional prefix to be used as the metrics key prefix. For example the metrics "bleu" will be named
+                "test_bleu" if the prefix is "test" (default)
+
+        <Tip>
+
+        If your predictions or labels have different sequence length (for instance because you're doing dynamic padding
+        in a token classification task) the predictions will be padded (on the right) to allow for concatenation into
+        one array. The padding index is -100.
+
+        </Tip>
+
+        Returns: *NamedTuple* A namedtuple with the following keys:
+
+            - predictions (`np.ndarray`): The predictions on `test_dataset`.
+            - label_ids (`np.ndarray`, *optional*): The labels (if the dataset contained some).
+            - metrics (`Dict[str, float]`, *optional*): The potential dictionary of metrics (if the dataset contained
+              labels).
+        """
+        # memory metrics - must set up as early as possible
+        self._memory_tracker.start()
+
+        test_dataloader = self.get_test_dataloader(test_dataset)
+        start_time = time.time()
+
+        eval_loop = self.prediction_loop if self.args.use_legacy_prediction_loop else self.evaluation_loop
+        output = eval_loop(
+            test_dataloader, description="Prediction", ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix
+        )
+        total_batch_size = self.args.eval_batch_size * self.args.world_size
+        if f"{metric_key_prefix}_jit_compilation_time" in output.metrics:
+            start_time += output.metrics[f"{metric_key_prefix}_jit_compilation_time"]
+        output.metrics.update(
+            speed_metrics(
+                metric_key_prefix,
+                start_time,
+                num_samples=output.num_samples,
+                num_steps=math.ceil(output.num_samples / total_batch_size),
+            )
+        )
+
+        self.control = self.callback_handler.on_predict(self.args, self.state, self.control, output.metrics)
+        self._memory_tracker.stop_and_update_metrics(output.metrics)
+
+        return PredictionOutput(predictions=output.predictions, label_ids=output.label_ids, metrics=output.metrics)
+    '''
 def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, dataset_mode, target_col='model_annots_str'):
     global_num_labels = utils.get_num_labels(dataset_name)
     global_num_annots = utils.get_num_annots(dataset_name)
@@ -111,6 +173,10 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra-{dataset_mode}-{target_col.replace('_annots_str', '')}"
     else:
         repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter-{dataset_mode}-{target_col.replace('_annots_str', '')}"
+
+    if os.path.exists(f"results_new/{repository_id}.pkl"):
+        print('already done', repository_id)
+        return
 
     # take subset of data if training is larger than 5000
     if len(tokenized_dataset["train"]) > 5000:
@@ -176,7 +242,6 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         labels = eval_preds.label_ids.flatten()
         labels2 = eval_preds.label_ids
         logits = eval_preds.predictions
-        print(logits)
         predictions = np.argmax(logits, axis=0).flatten()
         if len(labels) != len(predictions):
             print("====len logits", len(logits), len(logits[0]), len(logits[0][0]))
@@ -203,14 +268,35 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         print("Failed to push to hub", repository_id)
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-    p = trainer.predict(tokenized_dataset["test"])
-    e = trainer.evaluate(tokenized_dataset["test"])
-    filename = f"results_new/{repository_id}.pkl"
-    print(p[1])
-    print(e)
 
+
+    test_loader = DataLoader(tokenized_dataset['test'], batch_size=32)
+    with torch.no_grad():
+        res = []
+        for batch in test_loader:
+            outputs = model(torch.stack(batch['input_ids'], dim=0).to(device), torch.stack(batch['attention_mask'], dim=0).to(device))
+            res += outputs
+
+    filename = f"results_new/{repository_id}.pkl"
     with open(filename, 'wb') as f:
-        pickle.dump([p, e], f)
+        pickle.dump(res, f)
+
+
+    #print("before predict!!!!!!!!!!!!!!!!!!!!!!!!!!!!!AND HEREEEEE")
+    #print(tokenized_dataset['test'][0])
+    #p = trainer.predict(test_dataset=tokenized_dataset["test"])
+    #print('after predict`@@@@@@@@@@@@@@@@@@@@@@@@@@@')
+    #print(len(model.classifiers))
+    #print(np.array(p.predictions).shape)
+    #print(np.array(p.label_ids).shape)
+    #print('............................................')
+    #e = trainer.evaluate(tokenized_dataset["test"])
+    #filename = f"results_new/{repository_id}.pkl"
+    #print(p[1])
+    #print(e)
+
+    #with open(filename, 'wb') as f:
+    #    pickle.dump([p, e], f)
 
 if __name__ == "__main__":
     '''
@@ -231,21 +317,25 @@ if __name__ == "__main__":
         args.remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_name', 'text', 'index']
     main(args.filename, args.model_id, args.dataset_name, args.remove_columns, args.col_for_num_labels, args.dataset_mode, args.target_col)
     '''
-    for dataset_name in ['Sentiment', 'SBIC', 'ghc', 'SChem5Labels']:
+    #for dataset_name in ['SBIC', 'ghc', 'SChem5Labels', 'Sentiment'][::-1]:
+    for dataset_name in ['SChem5Labels']:
         #for m in ['frequency']:#, 'shuffle', 'sorted']:
-        for m in ['shuffle', 'sorted', 'frequency', 'dataset-frequency']:
+        for m in [ 'shuffle']:
             #for m in ['shuffle']:#, 'sorted']:
             for target_col in ['human_annots', 'model_annots']:
                 #first_order([dataset_name], 'minority')
                 #first_order([dataset_name], 'all')
                 #second_order([dataset_name])
-                main(filename = '../data/intermodel_data.csv',
-                     model_id = 'roberta-base',
-                     dataset_name = dataset_name,
-                     remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
-                     col_for_num_labels = "human_annots",
-                     dataset_mode = m,
-                     target_col = target_col)
+
+                #if False:
+                if True:
+                    main(filename = '../data/intermodel_data.csv',
+                         model_id = 'roberta-base',
+                         dataset_name = dataset_name,
+                         remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
+                         col_for_num_labels = "human_annots",
+                         dataset_mode = m,
+                         target_col = target_col)
                 if target_col == 'model_annots':
                     main(filename = '../data/intramodel_data.csv',
                          model_id = 'roberta-base',

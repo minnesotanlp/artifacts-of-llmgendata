@@ -97,9 +97,8 @@ def format_dataset_roberta(filename, dataset_name, mode="sorted"):
             df[col] = df[col].apply(lambda x: sorted([int(el) for el in x]))
     elif "dataset-frequency" in mode:# [frequency, reverse_frequency]
         for col in ['human_annots', 'model_annots']:
-            all_annots = np.array([str_to_lst(row) for row in df[col]]).flatten()
-            all_annots = ''.join(all_annots)
-            all_annots = [annot for annot in all_annots]
+            all_annots = [str_to_lst(row) for row in df[col]]
+            all_annots = [item for row in all_annots for item in row]
             freq_dict = dict(Counter(all_annots))
             freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="dataset-frequency")))
             for i in range(df[col].shape[0]):
@@ -121,7 +120,7 @@ def format_dataset_roberta(filename, dataset_name, mode="sorted"):
             for i in range(df[col].shape[0]):
                 x = str_to_lst(df[col][i])
                 random.shuffle(x)
-
+                df[col][i] = [int(el) for el in x]
     # pad/truncate here since we always want the padding to come at the end
     for col in ['human_annots', 'model_annots']:
         for i in range(df[col].shape[0]):
@@ -139,7 +138,6 @@ def format_dataset(filename, dataset_name, mode="sorted"):
         for col in ['human_annots', 'model_annots']:
             df[col] = df[col].apply(lambda x: sorted([i if i != 'nan' else -1 for i in np.fromstring(x[1:-1].replace('.',''), dtype=int, sep=' ')]))
             df[f'{col}_str'] = df[col].apply(lambda x: " ".join([str(i) for i in x]))
-            print('sorted', df[f'{col}_str'][0])
     if True or "dataset-frequency" in mode:# [frequency, reverse_frequency]
     #elif "dataset-frequency" in mode:# [frequency, reverse_frequency]
         for col in ['human_annots', 'model_annots']:
@@ -153,12 +151,9 @@ def format_dataset(filename, dataset_name, mode="sorted"):
                 # adding 1 of each label so it shows up in final string - won't mess up frequency order
                 row_freq_dict = dict(Counter([el for el in this_str]))
                 #row_freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
-                #print("row_freq_dict", row_freq_dict)
                 new_str = ''.join([str(k)*row_freq_dict.get(k, 0) for k in freq_dict.keys()])
-                #print("NEW_STR", new_str)
                 df[col][i] = list(new_str)
             df[f'{col}_str'] = df[col].apply(lambda x: (' '.join(list(x))))
-            print('dataset freq', df[f'{col}_str'][0])
     #elif "frequency" in mode:# [frequency, reverse_frequency]
     if True or "frequency" in mode:# [frequency, reverse_frequency]
         for col in ['human_annots', 'model_annots']:
@@ -256,8 +251,8 @@ def get_tokenized_data(filename, dataset, tokenizer, col_for_num_labels, remove_
         if model_id == "roberta-base":
             # convert all missing/invalid values to -1 here
             # sample[target] should be a list of labels
-            if type(sample[target]) == str:
-                sample[target] = eval(sample[target])
+            if type(sample[target][0]) == str:
+                sample[target] = [eval(row) for row in sample[target]]
             model_inputs['labels'] = np.array(sample[target]).astype(int).tolist()
             for row_i in range(len(sample[target])):
                 for annot_i in range(len(sample[target][row_i])):
