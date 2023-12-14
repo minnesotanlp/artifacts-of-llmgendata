@@ -1,7 +1,8 @@
 import os
 os.environ["WANDB_PROJECT"] = "artifacts"
 os.environ["WANDB_LOG_MODEL"] = "checkpoint"
-#os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0" # tmux a -t 0
+#os.environ["CUDA_VISIBLE_DEVICES"] = "1" # tmux a -t 1
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:32"
 import torch
 torch.cuda.empty_cache()
@@ -38,7 +39,7 @@ import evaluate
 SEED = 42
 random.seed(SEED)
 import utils
-LR = 1e-4
+LR = 1e-5
 NUM_CYCLES = 2
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 loss_fct = CrossEntropyLoss(ignore_index=-1)
@@ -50,6 +51,7 @@ alpha = 0.5 # for the loss function
 import utils
 accelerator = utils.get_accelerator()
 from evaluate import load
+from collections import Counter
 
 class CustomValueDistanceLoss(nn.Module):
     def __init__(self):
@@ -159,7 +161,8 @@ class CustomTrainer(Trainer):
 
         return PredictionOutput(predictions=output.predictions, label_ids=output.label_ids, metrics=output.metrics)
     '''
-def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, dataset_mode, target_col='model_annots_str'):
+
+def main(filename, model_id, dataset_name, remove_columns, dataset_mode, target_col):
     global_num_labels = utils.get_num_labels(dataset_name)
     global_num_annots = utils.get_num_annots(dataset_name)
 
@@ -167,32 +170,49 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     model = MultiTaskRobertaModel(model_id, global_num_annots, global_num_labels).to(accelerator.device)
     tokenizer = RobertaTokenizer.from_pretrained(model_id)
 
-    tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, tokenizer, col_for_num_labels, remove_columns=remove_columns, mode=dataset_mode, target_col=target_col)
+    tokenized_dataset = utils.get_tokenized_data(filename, dataset_name, tokenizer, remove_columns=remove_columns, mode=dataset_mode, target_col=target_col)
+
     if 'intra' in filename: 
         # for the non-batch size stuff, we used a batch size of 5000, which worked horribly for the bigger models
         repository_id = f"{dataset_name}-{model_id.replace('/','-')}-intra-{dataset_mode}-{target_col.replace('_annots_str', '')}"
     else:
         repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter-{dataset_mode}-{target_col.replace('_annots_str', '')}"
 
-    if os.path.exists(f"results_new/{repository_id}.pkl"):
-        print('already done', repository_id)
-        return
+    print('repository_id-----------------', repository_id)
+    print('before tokenized_dataset', len(tokenized_dataset['train']), len(tokenized_dataset['val']), len(tokenized_dataset['test']))
+    for i in range(3):
+        print(tokenized_dataset['train'][target_col][i])
+    print(sum(utils.flatten_recursive(tokenized_dataset['train'][target_col.replace('_str', '')])))
 
-    # take subset of data if training is larger than 5000
-    if len(tokenized_dataset["train"]) > 5000:
+    return
+
+    #if os.path.exists(f"results_new/{repository_id}.pkl"):
+    #    print('already done', repository_id)
+    #    return
+    max_size = 5000
+    # take subset of data if training is larger than max_size 
+    if False and len(tokenized_dataset["train"]) > max_size:
         # choose random numbers between 0 and len(tokenized_dataset[split])
-        random.seed(SEED)
-        train_ind = random.sample(range(len(tokenized_dataset["train"])), 5000)
-        val_ind = random.sample(range(len(tokenized_dataset["val"])), 500)
-        test_ind = random.sample(range(len(tokenized_dataset["test"])), 500)
-        with open(f"{repository_id}-indices.pkl", 'wb') as f:
-            pickle.dump([train_ind, val_ind, test_ind], f)
-        tokenized_dataset["train"] = tokenized_dataset["train"].select(train_ind)
-        tokenized_dataset["val"] = tokenized_dataset["val"].select(val_ind)
-        tokenized_dataset["test"] = tokenized_dataset["test"].select(test_ind)
-
+        ind_filename = f'{dataset_name}_indices.pkl'
+        if os.path.exists(ind_filename):
+            with open(ind_filename, 'rb') as f:
+                train_ind, val_ind, test_ind = pickle.load(f)
+            tokenized_dataset["train"] = tokenized_dataset["train"].select(train_ind)
+            tokenized_dataset["val"] = tokenized_dataset["val"].select(val_ind)
+            tokenized_dataset["test"] = tokenized_dataset["test"].select(test_ind)
+        else:
+            random.seed(SEED)
+            train_ind = random.sample(range(len(tokenized_dataset["train"])), max_size)
+            val_ind = random.sample(range(len(tokenized_dataset["val"])), max_size*0.1)
+            test_ind = random.sample(range(len(tokenized_dataset["test"])), max_size*0.1)
+            with open(ind_filename, 'wb') as f:
+                pickle.dump([train_ind, val_ind, test_ind], f)
+            tokenized_dataset["train"] = tokenized_dataset["train"].select(train_ind)
+            tokenized_dataset["val"] = tokenized_dataset["val"].select(val_ind)
+            tokenized_dataset["test"] = tokenized_dataset["test"].select(test_ind)
     no_decay = ['bias', 'LayerNorm.weight']
 
+    print('after tokenized_dataset', len(tokenized_dataset['train']), len(tokenized_dataset['val']), len(tokenized_dataset['test']))
     optimizer_grouped_parameters = [
         {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
         {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0},
@@ -207,7 +227,14 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     #tokenized_dataset["train"] = tokenized_dataset["train"].select(range(min(100, len(tokenized_dataset["train"]))))
     #tokenized_dataset["val"] = tokenized_dataset["val"].select(range(min(10, len(tokenized_dataset["val"]))))
     #tokenized_dataset["test"] = tokenized_dataset["test"].select(range(min(10, len(tokenized_dataset["test"]))))
-
+    print(repository_id, '========================')
+    try:
+        print(Counter(np.array(tokenized_dataset["train"][target_col]).flatten()))
+        print(Counter(np.array(tokenized_dataset["val"][target_col]).flatten()))
+        print(Counter(np.array(tokenized_dataset["test"][target_col]).flatten()))
+        #print(Counter(tokenized_dataset["train"][target_col]))
+    except:
+        print("ERROR!!!!!!!!!\n")
 
     training_args = TrainingArguments(
         output_dir=repository_id,
@@ -260,16 +287,21 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
         #compute_metrics=compute_metrics,
     )
     trainer.train()
+
+    #suffix = 'whole'
+    suffix = f'alpha{alpha}_whole_{LR}'
+
     try:
         trainer.create_model_card()
-        trainer.push_to_hub()
+        trainer.push_to_hub()#repo_id=f'{repository_id}_{suffix}.pt')#, use_auth_token=HfFolder.get_token()
     except Exception as e:
-        trainer.save_model(f'{repository_id}.pt')
+        trainer.save_model(f'{repository_id}_{suffix}.pt')
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         print("Failed to push to hub", repository_id)
+        print(e)
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
-
+    '''
     test_loader = DataLoader(tokenized_dataset['test'], batch_size=32)
     with torch.no_grad():
         res = []
@@ -280,72 +312,78 @@ def main(filename, model_id, dataset_name, remove_columns, col_for_num_labels, d
     filename = f"results_new/{repository_id}.pkl"
     with open(filename, 'wb') as f:
         pickle.dump(res, f)
-
+    '''
 
     #print("before predict!!!!!!!!!!!!!!!!!!!!!!!!!!!!!AND HEREEEEE")
     #print(tokenized_dataset['test'][0])
-    #p = trainer.predict(test_dataset=tokenized_dataset["test"])
+    p = trainer.predict(test_dataset=tokenized_dataset["test"])
     #print('after predict`@@@@@@@@@@@@@@@@@@@@@@@@@@@')
     #print(len(model.classifiers))
     #print(np.array(p.predictions).shape)
     #print(np.array(p.label_ids).shape)
     #print('............................................')
-    #e = trainer.evaluate(tokenized_dataset["test"])
-    #filename = f"results_new/{repository_id}.pkl"
-    #print(p[1])
-    #print(e)
+    e = trainer.evaluate(tokenized_dataset["test"])
+    filename = f"results_new/{repository_id}_{suffix}.pkl" # with the same indices
+    # orig: alpha=0.5
+    # 2: alpha=0.8
 
-    #with open(filename, 'wb') as f:
-    #    pickle.dump([p, e], f)
+
+    print(p[1])
+    print(e)
+
+    with open(filename, 'wb') as f:
+        pickle.dump([p, e], f)
 
 if __name__ == "__main__":
-    '''
-    # get args
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model_id", type=str, default="roberta-base")
-    parser.add_argument("--dataset_name", type=str, default="SChem5Labels")
-    parser.add_argument("--filename", type=str, default="../data/intermodel_data.csv")
-    parser.add_argument("--col_for_num_labels", type=str, default="model_annots")
-    parser.add_argument("--dataset_mode", type=str, default="dataset-frequency")
-    #parser.add_argument("--dataset_mode", type=str, default="sorted")
-    parser.add_argument("--target_col", type=str, default="model_annots")
-    args = parser.parse_args()
-    if args.filename == "../data/intramodel_data.csv":
-        args.remove_columns = ['index', 'dataset_name', 'text', 'text_ind', 'prompt', 'params']
+    use_bash = True
+    if use_bash:
+        # get args
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--model_id", type=str, default="roberta-base")
+        parser.add_argument("--dataset_name", type=str, default="SChem5Labels")
+        parser.add_argument("--filename", type=str, default="../data/intermodel_data.csv")
+        parser.add_argument("--dataset_mode", type=str, default="dataset-frequency")
+        #parser.add_argument("--dataset_mode", type=str, default="sorted")
+        parser.add_argument("--target_col", type=str, default="model_annots")
+        args = parser.parse_args()
+        if args.filename == "../data/intramodel_data.csv":
+            args.remove_columns = ['index', 'dataset_name', 'text', 'text_ind', 'prompt', 'params'] #, 'human_annots'
+        else:
+            args.remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_name', 'text', 'index'] #model_annots
+        main(args.filename, args.model_id, args.dataset_name, args.remove_columns, args.dataset_mode, args.target_col)
     else:
-        args.remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_name', 'text', 'index']
-    main(args.filename, args.model_id, args.dataset_name, args.remove_columns, args.col_for_num_labels, args.dataset_mode, args.target_col)
-    '''
-    #for dataset_name in ['SBIC', 'ghc', 'SChem5Labels', 'Sentiment'][::-1]:
-    for dataset_name in ['SChem5Labels']:
-        #for m in ['frequency']:#, 'shuffle', 'sorted']:
-        for m in [ 'shuffle']:
-            #for m in ['shuffle']:#, 'sorted']:
-            for target_col in ['human_annots', 'model_annots']:
-                #first_order([dataset_name], 'minority')
-                #first_order([dataset_name], 'all')
-                #second_order([dataset_name])
+        for dataset_name in ['SBIC', 'ghc', 'SChem5Labels', 'Sentiment'][::-1]:
+        #for dataset_name in ['SBIC', 'ghc']:
+        #for dataset_name in ['SChem5Labels']:
+            #for m in ['frequency']:#, 'shuffle', 'sorted']:
+            for m in ['sorted', 'shuffle', 'frequency', 'dataset-frequency']:
+                #for m in ['shuffle']:#, 'sorted']:
+                for target_col in ['human_annots', 'model_annots']:
+                    #first_order([dataset_name], 'minority')
+                    #first_order([dataset_name], 'all')
+                    #second_order([dataset_name])
 
-                #if False:
-                if True:
-                    main(filename = '../data/intermodel_data.csv',
-                         model_id = 'roberta-base',
-                         dataset_name = dataset_name,
-                         remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
-                         col_for_num_labels = "human_annots",
-                         dataset_mode = m,
-                         target_col = target_col)
-                if target_col == 'model_annots':
-                    main(filename = '../data/intramodel_data.csv',
-                         model_id = 'roberta-base',
-                         dataset_name = dataset_name,
-                         remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'],
-                         col_for_num_labels = "model_annots",
-                         dataset_mode = m,
-                         target_col = target_col)
+                    #if False:
+                    if True:
+                        main(filename = '../data/intermodel_data.csv',
+                             model_id = 'roberta-base',
+                             dataset_name = dataset_name,
+                             remove_columns = ['dataset_name', 'text_ind', 'prompt'],#, 'model_annots'],
+                             dataset_mode = m,
+                             target_col = target_col)
+                    if target_col == 'model_annots':
+                        main(filename = '../data/intramodel_data.csv',
+                             model_id = 'roberta-base',
+                             dataset_name = dataset_name,
+                             remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params'],#, 'human_annots'],
+                             dataset_mode = m,
+                             target_col = target_col)
 
-    '''
+    ########################################################################
+    ########################################################################
+    ########################################################################
+    ''' 
     #for dn in ['SChem5Labels', 'Sentiment', 'SBIC', 'ghc']:
     #for m in ['frequency', 'dataset-frequency']:
     for m in ['sorted']:
@@ -354,28 +392,25 @@ if __name__ == "__main__":
              model_id = model_id,
              dataset_name = dn,
              remove_columns = ['index', 'dataset_name', 'text', 'text_ind', 'prompt', 'params', 'human_annots', 'model_annots'],
-             col_for_num_labels = "model_annots",
              target_col='model_annots',
              dataset_mode = m)
         main(filename = '../data/intermodel_data.csv', 
              model_id = model_id,
              dataset_name = dn,
              remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
-             col_for_num_labels = "human_annots",
              target_col='model_annots',
              dataset_mode = m)
         main(filename = '../data/intramodel_data.csv', 
              model_id = model_id,
              dataset_name = dn,
              remove_columns = ['dataset_name', 'text_ind', 'prompt', 'params', 'human_annots'],
-             col_for_num_labels = "model_annots",
              dataset_mode = m,
              target_col='human_annots')
         main(filename = '../data/intermodel_data.csv', 
              model_id = model_id,
              dataset_name = dn,
              remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_annots'],
-             col_for_num_labels = "human_annots",
              dataset_mode = m,
              target_col = "human_annots")
     '''
+                        
