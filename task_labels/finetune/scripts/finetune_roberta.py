@@ -184,14 +184,12 @@ def main(filename, model_id, dataset_name, remove_columns, dataset_mode, target_
         print(tokenized_dataset['train'][target_col][i])
     print(sum(utils.flatten_recursive(tokenized_dataset['train'][target_col.replace('_str', '')])))
 
-    return
-
     #if os.path.exists(f"results_new/{repository_id}.pkl"):
     #    print('already done', repository_id)
     #    return
     max_size = 5000
     # take subset of data if training is larger than max_size 
-    if False and len(tokenized_dataset["train"]) > max_size:
+    if False:# and len(tokenized_dataset["train"]) > max_size:
         # choose random numbers between 0 and len(tokenized_dataset[split])
         ind_filename = f'{dataset_name}_indices.pkl'
         if os.path.exists(ind_filename):
@@ -235,7 +233,7 @@ def main(filename, model_id, dataset_name, remove_columns, dataset_mode, target_
         #print(Counter(tokenized_dataset["train"][target_col]))
     except:
         print("ERROR!!!!!!!!!\n")
-
+    return
     training_args = TrainingArguments(
         output_dir=repository_id,
         per_device_train_batch_size=BATCH_SIZE,
