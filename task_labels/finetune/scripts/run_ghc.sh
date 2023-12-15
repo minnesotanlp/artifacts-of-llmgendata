@@ -1,4 +1,4 @@
-for dataset in SChem5Labels Sentiment
+for dataset in ghc
 do
     for mode in sorted shuffle frequency data-frequency
     do

@@ -1,8 +1,6 @@
 import os
 os.environ["WANDB_PROJECT"] = "artifacts"
 os.environ["WANDB_LOG_MODEL"] = "checkpoint"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0" # tmux a -t 0
-#os.environ["CUDA_VISIBLE_DEVICES"] = "1" # tmux a -t 1
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:32"
 import torch
 torch.cuda.empty_cache()
@@ -47,11 +45,12 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 import torch
 import torch.nn as nn
 from transformers import RobertaForSequenceClassification, RobertaTokenizer, RobertaModel
-alpha = 0.5 # for the loss function 
+alpha = 0.8 # for the loss function 
 import utils
 accelerator = utils.get_accelerator()
 from evaluate import load
 from collections import Counter
+suffix = f'alpha{alpha}_whole_{LR}'
 
 class CustomValueDistanceLoss(nn.Module):
     def __init__(self):
@@ -166,7 +165,7 @@ def main(filename, model_id, dataset_name, remove_columns, dataset_mode, target_
     global_num_labels = utils.get_num_labels(dataset_name)
     global_num_annots = utils.get_num_annots(dataset_name)
 
-    BATCH_SIZE = utils.get_batch_size(dataset_name)
+    BATCH_SIZE = 1#utils.get_batch_size(dataset_name)
     model = MultiTaskRobertaModel(model_id, global_num_annots, global_num_labels).to(accelerator.device)
     tokenizer = RobertaTokenizer.from_pretrained(model_id)
 
@@ -210,7 +209,6 @@ def main(filename, model_id, dataset_name, remove_columns, dataset_mode, target_
             tokenized_dataset["test"] = tokenized_dataset["test"].select(test_ind)
     no_decay = ['bias', 'LayerNorm.weight']
 
-    print('after tokenized_dataset', len(tokenized_dataset['train']), len(tokenized_dataset['val']), len(tokenized_dataset['test']))
     optimizer_grouped_parameters = [
         {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
         {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0},
@@ -225,15 +223,7 @@ def main(filename, model_id, dataset_name, remove_columns, dataset_mode, target_
     #tokenized_dataset["train"] = tokenized_dataset["train"].select(range(min(100, len(tokenized_dataset["train"]))))
     #tokenized_dataset["val"] = tokenized_dataset["val"].select(range(min(10, len(tokenized_dataset["val"]))))
     #tokenized_dataset["test"] = tokenized_dataset["test"].select(range(min(10, len(tokenized_dataset["test"]))))
-    print(repository_id, '========================')
-    try:
-        print(Counter(np.array(tokenized_dataset["train"][target_col]).flatten()))
-        print(Counter(np.array(tokenized_dataset["val"][target_col]).flatten()))
-        print(Counter(np.array(tokenized_dataset["test"][target_col]).flatten()))
-        #print(Counter(tokenized_dataset["train"][target_col]))
-    except:
-        print("ERROR!!!!!!!!!\n")
-    return
+
     training_args = TrainingArguments(
         output_dir=repository_id,
         per_device_train_batch_size=BATCH_SIZE,
@@ -256,7 +246,7 @@ def main(filename, model_id, dataset_name, remove_columns, dataset_mode, target_
         #push_to_hub=True,
         include_inputs_for_metrics=True,
         hub_strategy="checkpoint",
-        hub_model_id=repository_id,
+        hub_model_id=f'{repository_id}_{suffix}',
         hub_token=HfFolder.get_token(),
         #remove_unused_columns = False,#"Mistral" in self.model_name,
     )
@@ -285,10 +275,6 @@ def main(filename, model_id, dataset_name, remove_columns, dataset_mode, target_
         #compute_metrics=compute_metrics,
     )
     trainer.train()
-
-    #suffix = 'whole'
-    suffix = f'alpha{alpha}_whole_{LR}'
-
     try:
         trainer.create_model_card()
         trainer.push_to_hub()#repo_id=f'{repository_id}_{suffix}.pt')#, use_auth_token=HfFolder.get_token()
@@ -298,7 +284,15 @@ def main(filename, model_id, dataset_name, remove_columns, dataset_mode, target_
         print("Failed to push to hub", repository_id)
         print(e)
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-
+    p = []
+    model = model.to(device)
+    with torch.no_grad():
+        for row in tokenized_dataset['test']:
+            res = model(torch.tensor(row['input_ids']).to(device).unsqueeze(0), torch.tensor(row['attention_mask']).to(device).unsqueeze(0))
+            p.append([el.cpu().numpy() for el in res])
+    filename = f"results_new/{repository_id}_{suffix}.pkl" # with the same indices
+    with open(filename, 'wb') as f:
+        pickle.dump(p, f)
     '''
     test_loader = DataLoader(tokenized_dataset['test'], batch_size=32)
     with torch.no_grad():
@@ -310,6 +304,7 @@ def main(filename, model_id, dataset_name, remove_columns, dataset_mode, target_
     filename = f"results_new/{repository_id}.pkl"
     with open(filename, 'wb') as f:
         pickle.dump(res, f)
+    '''
     '''
 
     #print("before predict!!!!!!!!!!!!!!!!!!!!!!!!!!!!!AND HEREEEEE")
@@ -331,9 +326,10 @@ def main(filename, model_id, dataset_name, remove_columns, dataset_mode, target_
 
     with open(filename, 'wb') as f:
         pickle.dump([p, e], f)
+    '''
 
 if __name__ == "__main__":
-    use_bash = True
+    use_bash = True 
     if use_bash:
         # get args
         import argparse
@@ -351,9 +347,9 @@ if __name__ == "__main__":
             args.remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_name', 'text', 'index'] #model_annots
         main(args.filename, args.model_id, args.dataset_name, args.remove_columns, args.dataset_mode, args.target_col)
     else:
-        for dataset_name in ['SBIC', 'ghc', 'SChem5Labels', 'Sentiment'][::-1]:
+        #for dataset_name in ['SBIC', 'ghc', 'SChem5Labels', 'Sentiment'][::-1]:
         #for dataset_name in ['SBIC', 'ghc']:
-        #for dataset_name in ['SChem5Labels']:
+        for dataset_name in ['SChem5Labels']:
             #for m in ['frequency']:#, 'shuffle', 'sorted']:
             for m in ['sorted', 'shuffle', 'frequency', 'dataset-frequency']:
                 #for m in ['shuffle']:#, 'sorted']:
@@ -370,6 +366,7 @@ if __name__ == "__main__":
                              remove_columns = ['dataset_name', 'text_ind', 'prompt'],#, 'model_annots'],
                              dataset_mode = m,
                              target_col = target_col)
+                        raise Exception("stop")
                     if target_col == 'model_annots':
                         main(filename = '../data/intramodel_data.csv',
                              model_id = 'roberta-base',
