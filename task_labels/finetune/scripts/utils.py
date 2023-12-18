@@ -107,12 +107,12 @@ def format_dataset_roberta(filename, dataset_name, mode="sorted"):
     if mode == "sorted":
         for col in ['human_annots', 'model_annots']:
             df[col] = df[col].apply(lambda x: sorted([int(el) for el in x]))
-    elif "dataset-frequency" in mode:# [frequency, reverse_frequency]
+    elif "data-frequency" in mode:# [frequency, reverse_frequency]
         for col in ['human_annots', 'model_annots']:
             all_annots = [str_to_lst(row) for row in df[col]]
             all_annots = [item for row in all_annots for item in row]
             freq_dict = dict(Counter(all_annots))
-            freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="dataset-frequency")))
+            freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="data-frequency")))
             for i in range(df[col].shape[0]):
                 this_str = ''.join(df[col][i])
                 row_freq_dict = dict(Counter([el for el in this_str]))
@@ -140,8 +140,9 @@ def format_dataset_roberta(filename, dataset_name, mode="sorted"):
                 df[col][i] += [-1]*(num_annots - len(df[col][i]))
     return df
 
-def split(df, dataset_name, grouping):
-    suffix = dataset_name + "_" + grouping 
+def split(df, dataset_name, grouping, mode):
+    # we split the data after reordering it so we need the mode too
+    suffix = dataset_name + "_" + grouping + "_" + mode 
     if os.path.exists(f"train_data_{suffix}.pkl"):
         train_data = pd.read_pickle(f"train_data_{suffix}.pkl")
         val_data = pd.read_pickle(f"val_data_{suffix}.pkl")
@@ -179,7 +180,7 @@ def get_data(filename, dataset_name, mode="sorted", model_id="roberta-base"):
     # returns DatasetDict with train, val, test
     model_df = format_dataset_roberta(filename, dataset_name, mode)
     grouping = 'inter' if 'inter' in filename else 'intra'
-    dataset = split(model_df, dataset_name, grouping)
+    dataset = split(model_df, dataset_name, grouping, mode)
     #print(f"Train dataset size: {len(intra_dataset['train'])}")
     #print(f"Test dataset size: {len(inter_dataset['test'])}")
     return dataset

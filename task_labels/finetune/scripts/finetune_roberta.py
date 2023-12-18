@@ -50,7 +50,6 @@ import utils
 accelerator = utils.get_accelerator()
 from evaluate import load
 from collections import Counter
-suffix = f'alpha{alpha}_whole_{LR}'
 
 class CustomValueDistanceLoss(nn.Module):
     def __init__(self):
@@ -79,6 +78,12 @@ class MultiTaskRobertaModel(nn.Module):
         return outputs
 
 class CustomTrainer(Trainer):
+    def __init__(self, *args, **kwargs):
+        print('args', args)
+        print('kwargs', kwargs)
+        self.alpha = kwargs.pop('alpha')
+        super().__init__(*args, **kwargs)
+
     def compute_loss(self, model, inputs, return_outputs=False):
         labels = inputs.pop("labels")
         outputs = model(**inputs.to(accelerator.device))
@@ -95,7 +100,7 @@ class CustomTrainer(Trainer):
                 pred_label.requires_grad = True
                 dist = val_dist_fct(labels[i][j], pred_label)
                 #print("ce", ce, "dist", dist, "labels", labels[i][j], "pred_label", pred_label)
-                loss += alpha * ce + (1-alpha) * dist 
+                loss += self.alpha * ce + (1-self.alpha) * dist 
         return (loss, outputs) if return_outputs else loss
     '''
     def predict_risako(
@@ -161,7 +166,8 @@ class CustomTrainer(Trainer):
         return PredictionOutput(predictions=output.predictions, label_ids=output.label_ids, metrics=output.metrics)
     '''
 
-def main(filename, model_id, dataset_name, remove_columns, dataset_mode, target_col):
+def main(filename, model_id, dataset_name, remove_columns, dataset_mode, target_col, alpha=0.8):
+    suffix = f'alpha{alpha}_whole_{LR}'
     global_num_labels = utils.get_num_labels(dataset_name)
     global_num_annots = utils.get_num_annots(dataset_name)
 
@@ -177,11 +183,11 @@ def main(filename, model_id, dataset_name, remove_columns, dataset_mode, target_
     else:
         repository_id = f"{dataset_name}-{model_id.replace('/','-')}-inter-{dataset_mode}-{target_col.replace('_annots_str', '')}"
 
-    print('repository_id-----------------', repository_id)
-    print('before tokenized_dataset', len(tokenized_dataset['train']), len(tokenized_dataset['val']), len(tokenized_dataset['test']))
-    for i in range(3):
-        print(tokenized_dataset['train'][target_col][i])
-    print(sum(utils.flatten_recursive(tokenized_dataset['train'][target_col.replace('_str', '')])))
+    #print('repository_id-----------------', repository_id)
+    #print('before tokenized_dataset', len(tokenized_dataset['train']), len(tokenized_dataset['val']), len(tokenized_dataset['test']))
+    #for i in range(3):
+    #    print(tokenized_dataset['train'][target_col][i])
+    #print(sum(utils.flatten_recursive(tokenized_dataset['train'][target_col.replace('_str', '')])))
 
     #if os.path.exists(f"results_new/{repository_id}.pkl"):
     #    print('already done', repository_id)
@@ -234,9 +240,8 @@ def main(filename, model_id, dataset_name, remove_columns, dataset_mode, target_
         learning_rate=LR,
         logging_dir=f"{repository_id}/logs",
         logging_strategy="steps",
-        logging_steps=1,
         evaluation_strategy="epoch",
-        num_train_epochs=5,
+        num_train_epochs=3,
         save_strategy="epoch",
         save_total_limit=1,
         load_best_model_at_end=True,
@@ -251,28 +256,15 @@ def main(filename, model_id, dataset_name, remove_columns, dataset_mode, target_
         #remove_unused_columns = False,#"Mistral" in self.model_name,
     )
 
-    def compute_metrics(eval_preds):
-        print("INSIDE COMPUTE METRICS")
-        metric = evaluate.load("f1")
-        labels = eval_preds.label_ids.flatten()
-        labels2 = eval_preds.label_ids
-        logits = eval_preds.predictions
-        predictions = np.argmax(logits, axis=0).flatten()
-        if len(labels) != len(predictions):
-            print("====len logits", len(logits), len(logits[0]), len(logits[0][0]))
-            print("====len labels", len(labels2), labels2[0])
-            print('labels', eval_preds.label_ids[0], 'predictions', np.argmax(logits, axis=0)[0])
-            raise Exception("labels and predictions are not the same length")
-        return metric.compute(predictions=predictions, references=labels, average="macro")
-
     trainer = CustomTrainer(
         model=model,
         args=training_args,
+        alpha=alpha,
         tokenizer=tokenizer,
         train_dataset=tokenized_dataset["train"],
         eval_dataset=tokenized_dataset["val"],
         optimizers=(optimizer, scheduler),
-        #compute_metrics=compute_metrics,
+        callbacks = [EarlyStoppingCallback(early_stopping_patience=2)]
     )
     trainer.train()
     try:
@@ -337,21 +329,22 @@ if __name__ == "__main__":
         parser.add_argument("--model_id", type=str, default="roberta-base")
         parser.add_argument("--dataset_name", type=str, default="SChem5Labels")
         parser.add_argument("--filename", type=str, default="../data/intermodel_data.csv")
-        parser.add_argument("--dataset_mode", type=str, default="dataset-frequency")
+        parser.add_argument("--dataset_mode", type=str, default="data-frequency")
         #parser.add_argument("--dataset_mode", type=str, default="sorted")
         parser.add_argument("--target_col", type=str, default="model_annots")
+        parser.add_argument("--alpha", type=float, default=0.8)
         args = parser.parse_args()
         if args.filename == "../data/intramodel_data.csv":
             args.remove_columns = ['index', 'dataset_name', 'text', 'text_ind', 'prompt', 'params'] #, 'human_annots'
         else:
             args.remove_columns = ['dataset_name', 'text_ind', 'prompt', 'model_name', 'text', 'index'] #model_annots
-        main(args.filename, args.model_id, args.dataset_name, args.remove_columns, args.dataset_mode, args.target_col)
+        main(args.filename, args.model_id, args.dataset_name, args.remove_columns, args.dataset_mode, args.target_col, args.alpha)
     else:
-        #for dataset_name in ['SBIC', 'ghc', 'SChem5Labels', 'Sentiment'][::-1]:
+        for dataset_name in ['SBIC', 'ghc', 'SChem5Labels', 'Sentiment'][::-1]:
         #for dataset_name in ['SBIC', 'ghc']:
-        for dataset_name in ['SChem5Labels']:
+        #for dataset_name in ['SChem5Labels']:
             #for m in ['frequency']:#, 'shuffle', 'sorted']:
-            for m in ['sorted', 'shuffle', 'frequency', 'dataset-frequency']:
+            for m in ['sorted', 'shuffle', 'frequency', 'data-frequency']:
                 #for m in ['shuffle']:#, 'sorted']:
                 for target_col in ['human_annots', 'model_annots']:
                     #first_order([dataset_name], 'minority')
