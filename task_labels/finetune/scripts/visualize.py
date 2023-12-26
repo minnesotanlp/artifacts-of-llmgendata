@@ -45,34 +45,38 @@ def before_after_line_plots_orig(res, suffix, top_n):
                     y = [res[dataset_name][m][source]['gold'].get(str(i),0) for i in range(num_labels)]
                     ax.plot(x, y, color=color_lst[plot_ind], marker=',', linestyle=line_lst[0], label=f'{source if source=="human" else "model"}-gold', linewidth=linewidth)
                     y = [res[dataset_name][m][source]['pred'].get(str(i),0) for i in range(num_labels)]
-                    ax.plot(x, y, color=color_lst[plot_ind], marker=',', linestyle=line_lst[1], label=f'{source if source=="human" else "model"}-prediction', linewidth=linewidth)
-                    if source != 'human':
-                        if m == 'sorted':
-                            y_max = max(y) 
-                            print('predictions', y)
-                            print('max', y_max)
-                        if m == 'shuffle':
-                            print('added', y_max, f'to ***** {dataset_name}-{m}-{source}-pred-{top_n}')
-                            # add horizontal line at y_max
-                            ax.axhline(y=y_max, color=color_lst[plot_ind+1], linestyle=line_lst[-1], label=f'{source if source=="human" else "model"}-sorted-prediction-max', linewidth=linewidth)
+                    ax.plot(x, y, color=color_lst[plot_ind], marker=',', linestyle=line_lst[1], label=f'{source if source=="human" else "model"}-pred', linewidth=linewidth)
+                    #if source != 'human':
+                    #    if m == 'sorted':
+                    #        y_max = max(y) 
+                    #        print('predictions', y)
+                    #        print('max', y_max)
+                    #    if m == 'shuffle':
+                    #        print('added', y_max, f'to ***** {dataset_name}-{m}-{source}-pred-{top_n}')
+                    #        # add horizontal line at y_max
+                    #        ax.axhline(y=y_max, color=color_lst[plot_ind+1], linestyle=line_lst[-1], label=f'{source if source=="human" else "model"}-sorted-prediction-max', linewidth=linewidth)
                     plot_ind += 1
-                plt.xticks(fontsize=23)
-                plt.yticks(fontsize=23)
-                ax.legend(fontsize=23)
+                plt.xticks(fontsize=16)
+                plt.yticks(fontsize=16)
+                ax.legend(fontsize=18)
                 # Add labels and a title
+                ax.xaxis.label.set_size(18)
+                ax.yaxis.label.set_size(18)
                 ax.set_xlabel('Labels')
                 ax.set_ylabel('Counts')
+                plt.tight_layout()
                 # set xticks
                 x_ticks = list(range(num_labels))
                 ax.set_xticks(x_ticks)
-                ax.set_title(f'{dataset_name}-{m}')
+                ax.set_title(f'{dataset_name}')
+                ax.title.set_size(20)
                 # Display the plot
                 if top_n == 1:
                     filename = f"{dataset_name}-{m}-{source}{suffix}-before-after.png"
                 else:
                     filename = f"{dataset_name}-{m}-{source}{suffix}-before-after-top{top_n}.png"
                 print('saving', filename)
-                plt.savefig(filename) 
+                plt.savefig(filename, bbox_inches='tight', dpi=300) 
                 plt.figure().clear()
                 plt.close()
 
@@ -88,35 +92,39 @@ def before_after_line_plots(res, suffix, top_n):
         fig, ax = plt.subplots()
         plot_ind = 0
         y = [res[dataset_name]['sorted']['human']['gold'].get(str(i),0) for i in range(num_labels)]
-        ax.plot(x, y, color='black', marker=',', linestyle=line_lst[-1], label=f'human (   )', linewidth=linewidth)
+        ax.plot(x, y, color='black', marker=',', linestyle=line_lst[-1], label=f'human (H)', linewidth=linewidth)
         y = [res[dataset_name]['sorted']['inter']['gold'].get(str(i),0) for i in range(num_labels)]
-        ax.plot(x, y, color='black', marker=',', linestyle=line_lst[-2], label=f'model (   )', linewidth=linewidth)
+        ax.plot(x, y, color='black', marker=',', linestyle=line_lst[-2], label=f'model (M)', linewidth=linewidth)
         for k, source in enumerate(['human','inter']):#, ['human', 'intra']]:  
             for m in ['sorted', 'shuffle']:#, 'frequency', 'data-frequency']:
                 y = [res[dataset_name][m][source]['pred'].get(str(i),0) for i in range(num_labels)]
                 print(source, m, y)
                 print('-'*10)
-                ax.plot(x, y, color=color_lst[plot_ind], marker=',', linestyle=line_lst[1], label=f'    pred. ({m})', linewidth=linewidth)
+                ax.plot(x, y, color=color_lst[plot_ind], marker=',', linestyle=line_lst[1], label=f'{"H" if k==0 else "M"} pred. ({m})', linewidth=linewidth)
                 #source if source=="human" else "model"}-prediction')
                 #ax.plot(x, y, color=color_lst[plot_ind], marker=',', linestyle=line_lst[1], label=f'{source[:2] if source=="human" else "mo"} pred. ({m})')#source if source=="human" else "model"}-prediction')
                 plot_ind += 1
-        plt.xticks(fontsize=18)
-        plt.yticks(fontsize=18)
+        plt.xticks(fontsize=16)
+        plt.yticks(fontsize=16)
         ax.legend(fontsize=18)
         # Add labels and a title
+        ax.xaxis.label.set_size(18)
+        ax.yaxis.label.set_size(18)
         ax.set_xlabel('Labels')
         ax.set_ylabel('Counts')
+        plt.tight_layout()
         # set xticks
         x_ticks = list(range(num_labels))
         ax.set_xticks(x_ticks)
         ax.set_title(f'{dataset_name}')
+        ax.title.set_size(20)
         # Display the plot
         if top_n == 1:
             filename = f"{dataset_name}-{suffix}-before-after.png"
         else:
             filename = f"{dataset_name}-{suffix}-before-after-top{top_n}.png"
         print('saving', filename)
-        plt.savefig(filename) 
+        plt.savefig(filename, bbox_inches='tight', dpi=300)
         plt.figure().clear()
         plt.close()
 
@@ -411,8 +419,7 @@ if __name__ == '__main__':
             #    del res['ghc']
             #if 'SBIC' in res:
             #    del res['SBIC']
-            before_after_line_plots_orig(res, suffix, top_n)
-            exit()
+            before_after_line_plots(res, suffix, top_n)
             #bar_plot(res, 'sorted', suffix)
             #bar_plot(res, 'shuffle', suffix)
     #'''
