@@ -12,6 +12,9 @@ import json
 import torch
 import time
 from scipy.special import softmax
+modes = ['frequency', 'data-frequency', 'sorted', 'shuffle']
+sources = ['human', 'inter']
+
 
 def create_hist_from_lst(lst, num_labels=5, title="Histogram of Label Annotations"):
     f = plt.figure()
@@ -32,7 +35,7 @@ def before_after_line_plots_orig(res, suffix, top_n):
     line_lst = ['-', '--', '-.', ':']
     for dataset_name in res:
         num_labels = utils.get_num_labels(dataset_name)
-        for m in ['sorted', 'shuffle']:#, 'frequency', 'data-frequency']:
+        for m in modes:
             for sources in [['human', 'inter']]:#, ['human', 'intra']]:  
                 x = list(range(num_labels))
                 plt.figure()
@@ -81,87 +84,74 @@ def before_after_line_plots_orig(res, suffix, top_n):
                 plt.close()
 
 def before_after_line_plots(res, suffix, top_n):
+    include_human = False
+    if include_human:
+        source_lst = ['human', 'inter']
+    else:
+        source_lst = ['inter']
     linewidth = 3
-    color_lst = [plt.cm.Set1(0), plt.cm.Set1(1), plt.cm.Set1(2), plt.cm.Set1(3), plt.cm.Set1(4), plt.cm.Set1(6)]
+    color_lst = []
+    for i in range(10):
+        color_lst.append(plt.cm.Set1(i))
+    #color_lst = [plt.cm.Set1(0), plt.cm.Set1(1), plt.cm.Set1(2), plt.cm.Set1(3), plt.cm.Set1(4), plt.cm.Set1(6)]
     line_lst = ['-', '--', '-.', '-']
     print('datasets', res.keys())
     for dataset_name in res:
         num_labels = utils.get_num_labels(dataset_name)
         x = list(range(num_labels))
-        plt.figure()
+        if len(modes) == 2:
+            plt.figure()
+        else:
+            plt.figure(figsize=(20,8))
         fig, ax = plt.subplots()
         plot_ind = 0
-        y = [res[dataset_name]['sorted']['human']['gold'].get(str(i),0) for i in range(num_labels)]
-        ax.plot(x, y, color='black', marker=',', linestyle=line_lst[-1], label=f'human (H)', linewidth=linewidth)
+        if include_human:
+            y = [res[dataset_name]['sorted']['human']['gold'].get(str(i),0) for i in range(num_labels)]
+            ax.plot(x, y, color='black', marker=',', linestyle=line_lst[-1], label=f'human (H)', linewidth=linewidth)
         y = [res[dataset_name]['sorted']['inter']['gold'].get(str(i),0) for i in range(num_labels)]
         ax.plot(x, y, color='black', marker=',', linestyle=line_lst[-2], label=f'model (M)', linewidth=linewidth)
-        for k, source in enumerate(['human','inter']):#, ['human', 'intra']]:  
-            for m in ['sorted', 'shuffle']:#, 'frequency', 'data-frequency']:
+        for k, source in enumerate(source_lst):
+            for m in modes:
+                if m != 'sorted' and source == 'human':
+                    continue
                 y = [res[dataset_name][m][source]['pred'].get(str(i),0) for i in range(num_labels)]
                 print(source, m, y)
                 print('-'*10)
-                ax.plot(x, y, color=color_lst[plot_ind], marker=',', linestyle=line_lst[1], label=f'{"H" if k==0 else "M"} pred. ({m})', linewidth=linewidth)
-                #source if source=="human" else "model"}-prediction')
-                #ax.plot(x, y, color=color_lst[plot_ind], marker=',', linestyle=line_lst[1], label=f'{source[:2] if source=="human" else "mo"} pred. ({m})')#source if source=="human" else "model"}-prediction')
+                ax.plot(x, y, color=color_lst[plot_ind], marker=',', linestyle=line_lst[1], label=f'{"H" if source=="human" else "M"} pred. ({m})', linewidth=linewidth)
                 plot_ind += 1
         plt.xticks(fontsize=16)
         plt.yticks(fontsize=16)
-        ax.legend(fontsize=18)
+        if len(modes) == 2:
+            ax.legend(fontsize=18)
+        else:
+            ax.legend(fontsize=18, loc='center left', bbox_to_anchor=(1, 0.5))
         # Add labels and a title
         ax.xaxis.label.set_size(18)
         ax.yaxis.label.set_size(18)
         ax.set_xlabel('Labels')
         ax.set_ylabel('Counts')
-        plt.tight_layout()
+        #plt.tight_layout()
         # set xticks
         x_ticks = list(range(num_labels))
         ax.set_xticks(x_ticks)
         ax.set_title(f'{dataset_name}')
         ax.title.set_size(20)
         # Display the plot
+        filename = f"{dataset_name}-{suffix}-"
+        print('????', filename)
+        if not include_human:
+            filename += "model_only-"
         if top_n == 1:
-            filename = f"{dataset_name}-{suffix}-before-after.png"
+            if len(modes) == 4:
+                filename += f"all_modes-before-after.png"
+            else:
+                filename += f"before-after.png"
         else:
-            filename = f"{dataset_name}-{suffix}-before-after-top{top_n}.png"
+            filename += f"before-after-top{top_n}.png"
         print('saving', filename)
         plt.savefig(filename, bbox_inches='tight', dpi=300)
         plt.figure().clear()
         plt.close()
-
-def movement_heatmap(mat):
-    for dataset_name in mat:
-        num_labels = utils.get_num_labels(dataset_name)
-        for m in mat[dataset_name]:
-            for source in mat[dataset_name][m]:
-                #mat[dataset_name][m][source] = np.array(mat[dataset_name][m][source])
-                heatmap_data = np.full((num_labels, num_labels), np.nan)
-                #heatmap_data = np.zeros((num_labels, num_labels))
-                #for i in range(num_labels): #gold/from
-                #    for j in range(num_labels): #pred/to
-                #        heatmap_data[i][j] = np.nan
-
-                for i in range(num_labels): #gold/from
-                    for j in range(num_labels): #pred/to
-                        if i != j:
-                            heatmap_data[i][j] = ((i-j)/abs(i-j))*mat[dataset_name][m][source][i][j] 
-                # remove all edge rows or columns will all nan
-                print('before', heatmap_data)
-                heatmap_data = heatmap_data[~np.isnan(heatmap_data).all(axis=1)]
-                print('after', heatmap_data)
-
-                plt.figure(figsize=(8, 6))
-                #sns.heatmap(np.isnan(heatmap_data), cmap='Greys', cbar=False, linewidths=.5)#, mask=np.isnan(heatmap_data), annot=False)
-                sns.heatmap(heatmap_data, annot=False, linewidths=.5, square=True, cbar_kws={'label': 'Color Values'}, cmap='coolwarm', center=0)
-
-                # Adding labels and title
-                plt.xlabel('Gold Labels')
-                plt.ylabel('Pred Labels')
-
-                # Displaying the plot
-                #plt.savefig(f'{dataset_name}-{m}-{source}-label-movement-heatmap.png')
-                plt.figure().clear()
-                plt.close()
-
 
 def show_trend(x, y, title):
     # Sample data
@@ -197,17 +187,6 @@ def show_trend(x, y, title):
     # Show the plot
     plt.savefig(f"./png/{title}.png")
 
-def get_gold(grouping):
-    res = {}
-    m = 'frequency'
-    for dataset_name in ['Sentiment', 'SBIC', 'ghc', 'SChem5Labels']:
-        res[dataset_name] = {}
-        df = read_csv(f'../data/{grouping}model_data.csv')
-        df = df[df['dataset_name'] == dataset_name]
-        res[dataset_name]['human'] = [utils.str_to_num_lst(row) for row in df['human_annots']]
-        res[dataset_name]['model'] = [utils.str_to_num_lst(row) for row in df['model_annots']]
-    return res
-
 def counter_to_sorted_dict(counter):
     d = {}
     for key in counter.keys():
@@ -222,11 +201,7 @@ def main(suffix, top_n, flatten):
     res = {} 
     gold = {}
 
-    #modes = ['frequency', 'data-frequency', 'sorted', 'shuffle']
-    modes = ['sorted', 'shuffle']
-
-    #for dataset_name in ['Sentiment', 'SChem5Labels', 'ghc', 'SBIC']:
-    for dataset_name in ['Sentiment', 'SChem5Labels']:
+    for dataset_name in ['Sentiment', 'SChem5Labels', 'ghc', 'SBIC']:
         res[dataset_name] = {}
         gold[dataset_name] = {}
         num_labels = utils.get_num_labels(dataset_name)
@@ -235,17 +210,16 @@ def main(suffix, top_n, flatten):
             res[dataset_name][m] = {} 
             gold[dataset_name][m] = {} # we get gold labels earlier so we want to store it here
 
-            for source in ['human', 'inter']:
+            for source in source_lst:
                 res[dataset_name][m][source] = {}
                 gold[dataset_name][m][source] = {}
                 for t in ['pred', 'gold']:
                     res[dataset_name][m][source][t] = []
-                if source != 'inter':
-                    gold_filename = '../data/intramodel_data.csv' if source == 'intra' else '../data/intermodel_data.csv'
-                    test_data = utils.get_data(gold_filename, dataset_name=dataset_name, mode=m, model_id="roberta-base")['test']
+                gold_filename = '../data/intramodel_data.csv' if source == 'intra' else '../data/intermodel_data.csv'
+                test_data = utils.get_data(gold_filename, dataset_name=dataset_name, mode=m, model_id="roberta-base")['test']
                 gold[dataset_name][m][source]['gold'] = [row['human_annots'] if source=='human' else row['model_annots'] for row in test_data]
         for m in modes: 
-            for source in ['human', 'inter']:
+            for source in source_lst:
                 filename = f'results_new/{dataset_name}-roberta-base-{"intra" if source == "intra" else "inter"}-{m}-{"human" if source == "human" else "model"}_annots{suffix}.pkl'
                 try:
                     with open(filename, 'rb') as f:
@@ -401,6 +375,29 @@ def density_plot(suffix, top_n=2, flatten=False):
             plt.figure().clear()
             plt.close()
 
+def ratio_of_largest_values(dictionary):
+    # Extract values from the dictionary
+    values = list(dictionary.values())
+
+    # Check if there are at least two values in the dictionary
+    if len(values) < 2:
+        raise ValueError("Dictionary must have at least two values")
+
+    # Sort the values in descending order
+    sorted_values = sorted(values, reverse=True)
+
+    # Calculate the ratio of the largest value over the next largest value
+    ratio = sorted_values[0] / sorted_values[1]
+
+    return ratio
+
+def get_gold(res):
+    for dataset_name in res.keys():
+        for mode in res[dataset_name].keys():
+            for source in res[dataset_name][mode].keys():
+                ratio = ratio_of_largest_values(res[dataset_name][mode][source]['gold'])
+                print(dataset_name, mode, source, ratio)
+
 if __name__ == '__main__':
     '''
     for flatten in [False]:
@@ -415,11 +412,14 @@ if __name__ == '__main__':
             write_to = f'res{suffix}'
             with open(write_to+'.json') as f:
                 res = json.load(f)
+                get_gold(res)
+                #print('keys', res['Sentiment']['shuffle']['human']['gold'])
+                #exit()
             #if 'ghc' in res:
             #    del res['ghc']
             #if 'SBIC' in res:
             #    del res['SBIC']
-            before_after_line_plots(res, suffix, top_n)
+            #before_after_line_plots(res, suffix, top_n)
             #bar_plot(res, 'sorted', suffix)
             #bar_plot(res, 'shuffle', suffix)
     #'''
