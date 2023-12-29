@@ -1,6 +1,5 @@
 import utils
 import ast
-from pandas import read_csv
 import pickle
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -29,7 +28,7 @@ def create_hist_from_lst(lst, num_labels=5, title="Histogram of Label Annotation
     #plt.close(f)
     #plt.show()
 
-def before_after_line_plots_orig(res, suffix, top_n):
+def before_after_line_plots_orig(res, suffix):
     linewidth = 3
     color_lst = [plt.cm.Set1(0), plt.cm.Set1(1), plt.cm.Set1(2), plt.cm.Set1(3), plt.cm.Set1(4), plt.cm.Set1(5)]
     line_lst = ['-', '--', '-.', ':']
@@ -44,20 +43,11 @@ def before_after_line_plots_orig(res, suffix, top_n):
                 # creates 4 lines
                 for source in sources: 
                     #print(f'{dataset_name}-{m}-{source}-gold', res[dataset_name][m][source]['gold'])
-                    print(f'***** {dataset_name}-{m}-{source}-pred-{top_n}', res[dataset_name][m][source]['pred'])
+                    print(f'***** {dataset_name}-{m}-{source}-pred', res[dataset_name][m][source]['pred'])
                     y = [res[dataset_name][m][source]['gold'].get(str(i),0) for i in range(num_labels)]
                     ax.plot(x, y, color=color_lst[plot_ind], marker=',', linestyle=line_lst[0], label=f'{source if source=="human" else "model"}-gold', linewidth=linewidth)
                     y = [res[dataset_name][m][source]['pred'].get(str(i),0) for i in range(num_labels)]
                     ax.plot(x, y, color=color_lst[plot_ind], marker=',', linestyle=line_lst[1], label=f'{source if source=="human" else "model"}-pred', linewidth=linewidth)
-                    #if source != 'human':
-                    #    if m == 'sorted':
-                    #        y_max = max(y) 
-                    #        print('predictions', y)
-                    #        print('max', y_max)
-                    #    if m == 'shuffle':
-                    #        print('added', y_max, f'to ***** {dataset_name}-{m}-{source}-pred-{top_n}')
-                    #        # add horizontal line at y_max
-                    #        ax.axhline(y=y_max, color=color_lst[plot_ind+1], linestyle=line_lst[-1], label=f'{source if source=="human" else "model"}-sorted-prediction-max', linewidth=linewidth)
                     plot_ind += 1
                 plt.xticks(fontsize=16)
                 plt.yticks(fontsize=16)
@@ -74,16 +64,13 @@ def before_after_line_plots_orig(res, suffix, top_n):
                 ax.set_title(f'{dataset_name}')
                 ax.title.set_size(20)
                 # Display the plot
-                if top_n == 1:
-                    filename = f"{dataset_name}-{m}-{source}{suffix}-before-after.png"
-                else:
-                    filename = f"{dataset_name}-{m}-{source}{suffix}-before-after-top{top_n}.png"
+                filename = f"{dataset_name}-{m}-{source}{suffix}-before-after.png"
                 print('saving', filename)
                 plt.savefig(filename, bbox_inches='tight', dpi=300) 
                 plt.figure().clear()
                 plt.close()
 
-def before_after_line_plots(res, suffix, top_n):
+def before_after_line_plots(res, suffix):
     include_human = False
     if include_human:
         source_lst = ['human', 'inter']
@@ -141,13 +128,10 @@ def before_after_line_plots(res, suffix, top_n):
         print('????', filename)
         if not include_human:
             filename += "model_only-"
-        if top_n == 1:
-            if len(modes) == 4:
-                filename += f"all_modes-before-after.png"
-            else:
-                filename += f"before-after.png"
+        if len(modes) == 4:
+            filename += f"all_modes-before-after.png"
         else:
-            filename += f"before-after-top{top_n}.png"
+            filename += f"before-after.png"
         print('saving', filename)
         plt.savefig(filename, bbox_inches='tight', dpi=300)
         plt.figure().clear()
@@ -162,7 +146,7 @@ def counter_to_sorted_dict(counter):
     return d
 
 
-def main(suffix, top_n, flatten):
+def main(suffix, flatten):
     # TODO: clean up code
     res = {} 
     gold = {}
@@ -197,24 +181,7 @@ def main(suffix, top_n, flatten):
                     print("ERROR", filename)
                     continue
                 labels = np.array(gold[dataset_name][m][source]['gold']).flatten().tolist()
-                if top_n == 1:
-                    predictions = np.argmax(logits, axis=-1).flatten().tolist()
-                else:
-                    predictions = np.array([])
-                    for logit_row in logits:
-                        for annot_row in logit_row:
-                            # choose one according to percentage
-                            annot_row = softmax(annot_row)
-                            # get the indices of the ones over 0.5
-                            chosen = np.argwhere(annot_row > 0.4).flatten()
-                            if len(chosen) == 0:
-                                chosen = np.argwhere(annot_row == max(annot_row)).flatten()
-                            predictions = np.append(predictions, chosen)
-                            # ********************
-                            # choose one randomly
-                            #chosen = np.argpartition(annot_row[0], -top_n, axis=-1)[::-1][:top_n]
-                            #predictions = np.append(predictions, [int(random.choice(chosen))])
-                #predictions = np.random.choice(predictions, size=len(labels), replace=False).flatten().tolist()
+                predictions = np.argmax(logits, axis=-1).flatten().tolist()
                 if flatten:
                     if type(predictions) != list:
                         res[dataset_name][m][source]['pred'] = predictions.tolist()
@@ -238,12 +205,10 @@ def main(suffix, top_n, flatten):
                 gold_inter[dataset_name][source] = [int(item) for row in gold_inter[dataset_name][source] for item in row]
            ''' 
     # write to file here
-    write_to = 'res'
+    write_to = 'res_test'
     if flatten:
         write_to += '_flatten'
     write_to += suffix
-    if top_n != 1:
-        write_to += f'_top{top_n}'
     write_to += '.json'
     with open(write_to, 'w') as f:
         json.dump(res, f, indent=4)
@@ -274,32 +239,19 @@ def get_gold(res):
 if __name__ == '__main__':
     '''
     for flatten in [False]:
-        for top_n in [1]:
-            #for suffix in ["_alpha0.5_whole_1e-05", "_alpha0.8_whole_1e-05"]:
-            for suffix in ["_alpha0.8_whole_1e-05"]:
-                main(suffix, top_n=top_n, flatten=flatten)
-                #density_plot(suffix, top_n=top_n, flatten=flatten)
+        #for suffix in ["_alpha0.5_whole_1e-05", "_alpha0.8_whole_1e-05"]:
+        for suffix in ["_alpha0.8_whole_1e-05"]:
+            main(suffix, flatten=flatten)
     '''
-    for top_n in [1]:
-        for suffix in ['_alpha0.8_whole_1e-05']:
-            write_to = f'res{suffix}'
-            with open(write_to+'.json') as f:
-                res = json.load(f)
-                get_gold(res)
-                #print('keys', res['Sentiment']['shuffle']['human']['gold'])
-                #exit()
-            #if 'ghc' in res:
-            #    del res['ghc']
-            #if 'SBIC' in res:
-            #    del res['SBIC']
-            #before_after_line_plots(res, suffix, top_n)
-            #bar_plot(res, 'sorted', suffix)
-            #bar_plot(res, 'shuffle', suffix)
-    #'''
-    #'''
-    #with open(f'res{suffix}.json') as f:
-    #    res = json.load(f)
-    #bar_plot(res, 'data-frequency', suffix+'_top2')
-    #bar_plot(res, 'frequency', suffix+'_top2')
-    #bar_plot(res, 'shuffle', suffix+'_top2')
-    #'''
+    for suffix in ['_alpha0.8_whole_1e-05']:
+        write_to = f'res{suffix}'
+        with open(write_to+'.json') as f:
+            res = json.load(f)
+            get_gold(res)
+            #print('keys', res['Sentiment']['shuffle']['human']['gold'])
+            #exit()
+        #if 'ghc' in res:
+        #    del res['ghc']
+        #if 'SBIC' in res:
+        #    del res['SBIC']
+        #before_after_line_plots(res, suffix)
