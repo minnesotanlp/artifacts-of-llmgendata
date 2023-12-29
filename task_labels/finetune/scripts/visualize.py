@@ -13,6 +13,7 @@ import time
 from scipy.special import softmax
 modes = ['frequency', 'data-frequency', 'sorted', 'shuffle']
 sources = ['human', 'inter']
+dataset_names = ['Sentiment', 'SChem5Labels', 'ghc', 'SBIC']
 
 
 def create_hist_from_lst(lst, num_labels=5, title="Histogram of Label Annotations"):
@@ -151,7 +152,7 @@ def main(suffix, flatten):
     res = {} 
     gold = {}
 
-    for dataset_name in ['Sentiment', 'SChem5Labels', 'ghc', 'SBIC']:
+    for dataset_name in dataset_names:
         res[dataset_name] = {}
         gold[dataset_name] = {}
         num_labels = utils.get_num_labels(dataset_name)
@@ -171,15 +172,8 @@ def main(suffix, flatten):
         for m in modes: 
             for source in source_lst:
                 filename = f'results_new/{dataset_name}-roberta-base-{"intra" if source == "intra" else "inter"}-{m}-{"human" if source == "human" else "model"}_annots{suffix}.pkl'
-                try:
-                    with open(filename, 'rb') as f:
-                        logits = pickle.load(f)
-                        #print(f'loaded {filename}')
-                        #print(logits[:10])
-                except:
-                    print('!!!!!!!!!!!!!!!!!!!!!')
-                    print("ERROR", filename)
-                    continue
+                with open(filename, 'rb') as f:
+                    logits = pickle.load(f)
                 labels = np.array(gold[dataset_name][m][source]['gold']).flatten().tolist()
                 predictions = np.argmax(logits, axis=-1).flatten().tolist()
                 if flatten:
@@ -191,19 +185,6 @@ def main(suffix, flatten):
                 else:
                     res[dataset_name][m][source]['pred'] = counter_to_sorted_dict(Counter(predictions))
                     res[dataset_name][m][source]['gold'] = counter_to_sorted_dict(Counter(labels))
-
-                #print(Counter(utils.flatten_recursive(gold_inter[dataset_name]['model'])))
-                #print("")
-                #for i in range(len(predictions)):
-                #    if predictions[i] == -1 or inter_labels[i] == -1:
-                #        continue
-            ''' not using
-                for i, row in enumerate(gold_inter[dataset_name][source]):
-                    row = row.replace('nan', '-1').replace('.', '')
-                    row = re.sub(r'(\d)\s', r'\1, ', row)
-                    gold_inter[dataset_name][source][i] = eval(row)
-                gold_inter[dataset_name][source] = [int(item) for row in gold_inter[dataset_name][source] for item in row]
-           ''' 
     # write to file here
     write_to = 'res_test'
     if flatten:
@@ -239,7 +220,6 @@ def get_gold(res):
 if __name__ == '__main__':
     '''
     for flatten in [False]:
-        #for suffix in ["_alpha0.5_whole_1e-05", "_alpha0.8_whole_1e-05"]:
         for suffix in ["_alpha0.8_whole_1e-05"]:
             main(suffix, flatten=flatten)
     '''
@@ -248,10 +228,4 @@ if __name__ == '__main__':
         with open(write_to+'.json') as f:
             res = json.load(f)
             get_gold(res)
-            #print('keys', res['Sentiment']['shuffle']['human']['gold'])
-            #exit()
-        #if 'ghc' in res:
-        #    del res['ghc']
-        #if 'SBIC' in res:
-        #    del res['SBIC']
         #before_after_line_plots(res, suffix)
