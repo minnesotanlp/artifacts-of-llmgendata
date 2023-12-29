@@ -153,40 +153,6 @@ def before_after_line_plots(res, suffix, top_n):
         plt.figure().clear()
         plt.close()
 
-def show_trend(x, y, title):
-    # Sample data
-    x = np.arange(1, 11)
-    y = np.array([3, 5, 8, 12, 9, 6, 4, 7, 10, 14])
-
-    # Threshold value to determine colors
-    threshold = 8
-
-    # Create a figure and axis
-    fig, ax = plt.subplots()
-
-    # Plot bars with two colors based on the threshold
-    for xi, yi in zip(x, y):
-        if yi >= threshold:
-            # Bar above threshold: top part is green, bottom part is red
-            ax.bar(xi, yi - threshold, bottom=threshold, color='green', edgecolor='black')
-            ax.bar(xi, threshold, color='red', edgecolor='black')
-        else:
-            # Bar below threshold: top part is red, bottom part is green
-            ax.bar(xi, threshold - yi, bottom=yi, color='red', edgecolor='black')
-            ax.bar(xi, yi, color='green', edgecolor='black')
-
-    # Add a line plot to show the trend
-    ax.plot(x, y, label='Trend Line', color='blue', marker='o')
-
-    # Add labels and legend
-    ax.set_xlabel('X-axis Label')
-    ax.set_ylabel('Y-axis Label')
-    ax.axhline(y=threshold, color='gray', linestyle='--', label='Threshold')
-    ax.legend()
-
-    # Show the plot
-    plt.savefig(f"./png/{title}.png")
-
 def counter_to_sorted_dict(counter):
     d = {}
     for key in counter.keys():
