@@ -16,20 +16,18 @@ sources = ['human', 'inter']
 dataset_names = ['Sentiment', 'SChem5Labels', 'ghc', 'SBIC']
 
 
-def create_hist_from_lst(lst, num_labels=5, title="Histogram of Label Annotations"):
-    f = plt.figure()
-    plt.hist(lst, bins=num_labels)
-    plt.title(title)
-    y_ticks = list(range(num_labels))
-    plt.yticks(y_ticks)
+def before_after_line_plots_simplified(res, suffix):
+    '''
+    Creates and saves Figure 12
+    Can be merged with before_after_line_plots later if preferred
 
-    plt.xlabel("Annotation")
-    plt.ylabel("Frequency")
-    plt.savefig(f"./png/{title}.png")
-    #plt.close(f)
-    #plt.show()
+    Parameters:
+        res: dictionary containing label data
+        suffix: string to append to filename
 
-def before_after_line_plots_orig(res, suffix):
+    Returns:
+        None
+    '''
     linewidth = 3
     color_lst = [plt.cm.Set1(0), plt.cm.Set1(1), plt.cm.Set1(2), plt.cm.Set1(3), plt.cm.Set1(4), plt.cm.Set1(5)]
     line_lst = ['-', '--', '-.', ':']
@@ -43,8 +41,6 @@ def before_after_line_plots_orig(res, suffix):
                 plot_ind = 0
                 # creates 4 lines
                 for source in sources: 
-                    #print(f'{dataset_name}-{m}-{source}-gold', res[dataset_name][m][source]['gold'])
-                    print(f'***** {dataset_name}-{m}-{source}-pred', res[dataset_name][m][source]['pred'])
                     y = [res[dataset_name][m][source]['gold'].get(str(i),0) for i in range(num_labels)]
                     ax.plot(x, y, color=color_lst[plot_ind], marker=',', linestyle=line_lst[0], label=f'{source if source=="human" else "model"}-gold', linewidth=linewidth)
                     y = [res[dataset_name][m][source]['pred'].get(str(i),0) for i in range(num_labels)]
@@ -72,6 +68,17 @@ def before_after_line_plots_orig(res, suffix):
                 plt.close()
 
 def before_after_line_plots(res, suffix):
+    '''
+    Creates and saves figures in appendix
+    Specifies training data label order
+
+    Parameters:
+        res: dictionary containing label data
+        suffix: string to append to filename
+
+    Returns:
+        None
+    '''
     include_human = False
     if include_human:
         source_lst = ['human', 'inter']
@@ -81,9 +88,7 @@ def before_after_line_plots(res, suffix):
     color_lst = []
     for i in range(10):
         color_lst.append(plt.cm.Set1(i))
-    #color_lst = [plt.cm.Set1(0), plt.cm.Set1(1), plt.cm.Set1(2), plt.cm.Set1(3), plt.cm.Set1(4), plt.cm.Set1(6)]
     line_lst = ['-', '--', '-.', '-']
-    print('datasets', res.keys())
     for dataset_name in res:
         num_labels = utils.get_num_labels(dataset_name)
         x = list(range(num_labels))
@@ -95,8 +100,10 @@ def before_after_line_plots(res, suffix):
         plot_ind = 0
         if include_human:
             y = [res[dataset_name]['sorted']['human']['gold'].get(str(i),0) for i in range(num_labels)]
+            print('gold-human', dataset_name, y)
             ax.plot(x, y, color='black', marker=',', linestyle=line_lst[-1], label=f'human (H)', linewidth=linewidth)
         y = [res[dataset_name]['sorted']['inter']['gold'].get(str(i),0) for i in range(num_labels)]
+        print('gold-inter', dataset_name, y)
         ax.plot(x, y, color='black', marker=',', linestyle=line_lst[-2], label=f'model (M)', linewidth=linewidth)
         for k, source in enumerate(source_lst):
             for m in modes:
@@ -125,8 +132,7 @@ def before_after_line_plots(res, suffix):
         ax.set_title(f'{dataset_name}')
         ax.title.set_size(20)
         # Display the plot
-        filename = f"{dataset_name}-{suffix}-"
-        print('????', filename)
+        filename = f"{dataset_name}-test-{suffix}-"
         if not include_human:
             filename += "model_only-"
         if len(modes) == 4:
@@ -139,15 +145,35 @@ def before_after_line_plots(res, suffix):
         plt.close()
 
 def counter_to_sorted_dict(counter):
+    '''
+    Helper function for main
+
+    Parameters:
+        counter: Counter object
+
+    Returns:
+        d: dictionary with keys sorted in ascending order
+    '''
+    # used in main
     d = {}
     for key in counter.keys():
         d[int(key)] = int(counter[key])
-        
     d = dict(sorted(d.items()))
     return d
 
 
 def main(suffix, flatten):
+    '''
+    Creates and saves dictionary containing label data
+    Saved files are used in before_after_line_plots
+    
+    Parameters:
+        suffix: string to append to filename
+        flatten: boolean indicating whether to flatten predictions
+
+    Returns:
+        None
+    '''
     # TODO: clean up code
     res = {} 
     gold = {}
@@ -161,16 +187,16 @@ def main(suffix, flatten):
             res[dataset_name][m] = {} 
             gold[dataset_name][m] = {} # we get gold labels earlier so we want to store it here
 
-            for source in source_lst:
+            for source in sources:
                 res[dataset_name][m][source] = {}
                 gold[dataset_name][m][source] = {}
                 for t in ['pred', 'gold']:
                     res[dataset_name][m][source][t] = []
-                gold_filename = '../data/intramodel_data.csv' if source == 'intra' else '../data/intermodel_data.csv'
+                gold_filename = f'test_data_{dataset_name}_{source}_{m}.pkl' if source == 'intra' else f'test_data_{dataset_name}_inter_{m}.pkl'
                 test_data = utils.get_data(gold_filename, dataset_name=dataset_name, mode=m, model_id="roberta-base")['test']
                 gold[dataset_name][m][source]['gold'] = [row['human_annots'] if source=='human' else row['model_annots'] for row in test_data]
         for m in modes: 
-            for source in source_lst:
+            for source in sources:
                 filename = f'results_new/{dataset_name}-roberta-base-{"intra" if source == "intra" else "inter"}-{m}-{"human" if source == "human" else "model"}_annots{suffix}.pkl'
                 with open(filename, 'rb') as f:
                     logits = pickle.load(f)
@@ -186,7 +212,7 @@ def main(suffix, flatten):
                     res[dataset_name][m][source]['pred'] = counter_to_sorted_dict(Counter(predictions))
                     res[dataset_name][m][source]['gold'] = counter_to_sorted_dict(Counter(labels))
     # write to file here
-    write_to = 'res_test'
+    write_to = 'res'
     if flatten:
         write_to += '_flatten'
     write_to += suffix
@@ -194,23 +220,26 @@ def main(suffix, flatten):
     with open(write_to, 'w') as f:
         json.dump(res, f, indent=4)
 
-def ratio_of_largest_values(dictionary):
-    # Extract values from the dictionary
-    values = list(dictionary.values())
+def get_gold_label_ratio(res):
+    '''
+    Helper function for main
 
-    # Check if there are at least two values in the dictionary
-    if len(values) < 2:
-        raise ValueError("Dictionary must have at least two values")
+    Parameters:
+        res: dictionary containing label data
 
-    # Sort the values in descending order
-    sorted_values = sorted(values, reverse=True)
+    Returns:
+        None
+    '''
+    def ratio_of_largest_values(dictionary):
+        values = list(dictionary.values())
+        if len(values) < 2:
+            raise ValueError("Dictionary must have at least two values")
+        # Sort the values in descending order
+        sorted_values = sorted(values, reverse=True)
+        # Calculate the ratio of the largest value over the next largest value
+        ratio = sorted_values[0] / sorted_values[1]
+        return round(ratio, 2)
 
-    # Calculate the ratio of the largest value over the next largest value
-    ratio = sorted_values[0] / sorted_values[1]
-
-    return ratio
-
-def get_gold(res):
     for dataset_name in res.keys():
         for mode in res[dataset_name].keys():
             for source in res[dataset_name][mode].keys():
@@ -227,5 +256,5 @@ if __name__ == '__main__':
         write_to = f'res{suffix}'
         with open(write_to+'.json') as f:
             res = json.load(f)
-            get_gold(res)
-        #before_after_line_plots(res, suffix)
+            #get_gold_label_ratio(res)
+        before_after_line_plots(res, suffix)
