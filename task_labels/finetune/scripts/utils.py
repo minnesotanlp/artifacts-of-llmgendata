@@ -73,23 +73,18 @@ def str_to_lst(x):
         x = x[1:-1]
     return list(x.replace(" ", "").replace("nan", "").replace(".", "").replace("'", "").replace('"', ""))       
 
-def str_to_num_lst(x):
+def str_to_np_arr(x):
     x = str_to_lst(x)
-    return [int(el) for el in x]
-
-def flatten_recursive(lst):
-    result = []
-    for item in lst:
-        if isinstance(item, list):
-            result.extend(flatten_recursive(item))
-        else:
-            result.append(item)
-    return result
+    return np.array([int(el) for el in x])
 
 def format_dataset_roberta(filename, dataset_name, mode="sorted"):
     np.random.seed(RANDOM_SEED)
     num_annots = get_num_annots(dataset_name)
-    df = pd.read_csv(filename)
+    if "csv" in filename:
+        df = pd.read_csv(filename)
+    elif "pkl" in filename:
+        df = pd.read_pickle(filename)
+        print(df.head())
     df = df[df['dataset_name'] == dataset_name]
 
     df.reset_index(inplace=True)
@@ -106,6 +101,8 @@ def format_dataset_roberta(filename, dataset_name, mode="sorted"):
 
     if mode == "sorted":
         for col in ['human_annots', 'model_annots']:
+            for i, row in enumerate(df[col]):
+                df[col][i] = list(filter(lambda a: a != '-', df[col][i]))
             df[col] = df[col].apply(lambda x: sorted([int(el) for el in x]))
     elif "data-frequency" in mode:# [frequency, reverse_frequency]
         for col in ['human_annots', 'model_annots']:
@@ -116,7 +113,7 @@ def format_dataset_roberta(filename, dataset_name, mode="sorted"):
             for i in range(df[col].shape[0]):
                 this_str = ''.join(df[col][i])
                 row_freq_dict = dict(Counter([el for el in this_str]))
-                new_str = ''.join([str(k)*row_freq_dict.get(k, 0) for k in freq_dict.keys()])
+                new_str = ''.join([str(k)*row_freq_dict.get(k, 0) for k in freq_dict.keys()]).replace('-', '')
                 df[col][i] = [int(el) for el in new_str]
     elif "frequency" in mode:# [frequency, reverse_frequency]
         # this is probably almost similar to shuffle when people are disagreeing
@@ -125,12 +122,13 @@ def format_dataset_roberta(filename, dataset_name, mode="sorted"):
                 this_str = (df[col][i])
                 freq_dict = dict(Counter([row for row in this_str]))
                 freq_dict = dict(sorted(freq_dict.items(), key=lambda x: x[1], reverse=(mode=="frequency")))
-                new_str = ''.join([str(k)*freq_dict[k] for k in freq_dict.keys()])
+                new_str = ''.join([str(k)*freq_dict[k] for k in freq_dict.keys()]).replace('-', '')
                 df[col][i] = [int(el) for el in new_str]
     elif mode == "shuffle":
         for col in ['human_annots', 'model_annots']:
             for i in range(df[col].shape[0]):
                 x = str_to_lst(df[col][i])
+                x = list(filter(lambda a: a != '-', x))
                 random.shuffle(x)
                 df[col][i] = [int(el) for el in x]
     # pad/truncate here since we always want the padding to come at the end
@@ -184,12 +182,6 @@ def get_data(filename, dataset_name, mode="sorted", model_id="roberta-base"):
     #print(f"Train dataset size: {len(intra_dataset['train'])}")
     #print(f"Test dataset size: {len(inter_dataset['test'])}")
     return dataset
-
-def get_dataloader(filename):
-    # untested
-    data = get_data(filename)
-    dataloader = DataLoader(data, batch_size=BATCH_SIZE, shuffle=False, worker_init_fn = seed_init_fn)
-    return dataloader
 
 def get_tokenized_data(filename, dataset, tokenizer, remove_columns, mode="sorted", target_col="model_annots_str", model_id="roberta-base"):
     grouping = 'inter' if 'inter' in filename else 'intra'
