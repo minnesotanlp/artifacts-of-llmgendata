@@ -46,7 +46,6 @@ import torch
 import torch.nn as nn
 from transformers import RobertaForSequenceClassification, RobertaTokenizer, RobertaModel
 alpha = 0.8 # for the loss function 
-import utils
 accelerator = utils.get_accelerator()
 from evaluate import load
 from collections import Counter
