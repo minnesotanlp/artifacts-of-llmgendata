@@ -26,3 +26,21 @@ It produces 3 files:
 
 # Digression
 
+`digression/Digression_SPP.ipynb` explains how we detect and analyze the digression in the simulated conversations between AI agents from Solo Performance Prompting (SPP) Logic Grid Puzzle dataset.
+
+How to run:
+
+1. Excute the lines in `digression/Digression_SPP.ipynb`
+
+It produces all the results:
+
+1. Existence of digression and the corresponding reasoning. Also, the specific type of digression is also produced.
+
+2. Likeliness as human conversation. 
+
+3. Usefulness of conversation to solve the given task. 
+
+All the data and the summarized results can be accessed at our [huggingface dataset card](https://huggingface.co/datasets/minnesotanlp/LLM-Artifacts/viewer/default/simulation_digression).
+
+
+
