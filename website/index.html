@@ -1,36 +1,6 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <meta charset="utf-8" />
-    <!-- Meta tags for social media banners, these should be filled in appropriatly as they are your "business card" -->
-    <!-- Replace the content tag with appropriate information -->
-    <meta name="description" content="DESCRIPTION META TAG" />
-    <meta property="og:title" content="SOCIAL MEDIA TITLE TAG" />
-    <meta
-      property="og:description"
-      content="SOCIAL MEDIA DESCRIPTION TAG TAG"
-    />
-    <meta property="og:url" content="URL OF THE WEBSITE" />
-    <!-- Path to banner image, should be in the path listed below. Optimal dimenssions are 1200X630-->
-    <meta property="og:image" content="static/image/your_banner_image.png" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
-
-    <meta name="twitter:title" content="TWITTER BANNER TITLE META TAG" />
-    <meta
-      name="twitter:description"
-      content="TWITTER BANNER DESCRIPTION META TAG"
-    />
-    <!-- Path to banner image, should be in the path listed below. Optimal dimenssions are 1200X600-->
-    <meta
-      name="twitter:image"
-      content="static/images/your_twitter_banner_image.png"
-    />
-    <meta name="twitter:card" content="summary_large_image" />
-    <!-- Keywords for your paper to be indexed by-->
-    <meta name="keywords" content="KEYWORDS SHOULD BE PLACED HERE" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-
     <title>Under the Surface: Tracking the Artifactuality of LLM-Generated Data</title>
     <link rel="icon" type="image/x-icon" href="static/images/favicon.ico" />
     <link
@@ -79,7 +49,7 @@
                 <span class="author-block">
                   <a href="https://debaratidas94.github.io/" target="_blank"
                     >Debarati Das</a
-                  ><sup>*</sup>,</span
+                  ><sup>*†</sup>,</span
                 >
                 <span class="author-block">
                   <a href="https://karinjd.github.io/" target="_blank"
@@ -164,18 +134,13 @@
               </div>
 
               <div class="is-size-5 publication-authors">
-                <span class="author-block">Minnesota NLP Group, University of Minnesota</apsn>
+                <span class="author-block">Minnesota NLP Group, University of Minnesota</span>
                 <span class="eql-cntrb"
                   ><small
-                    ><br /><sup>*</sup>Indicates Equal Contribution</small
+                    ><br /><sup>*</sup>Core Contributor <sup>†</sup>Project Lead</small
                   ></span
                 >
               </div>
-
-              <div class="notification is-warning is-light left">
-                <button class="delete"></button>
-                <b>Comment:</b> Everyone please check the link you'd like to add on your name. - Bin
-            </div>
 
               <div class="column has-text-centered">
                 <div class="publication-links">
@@ -196,9 +161,9 @@
                   <!-- Github link -->
                   <span class="link-block">
                     <a
-                      href="https://github.com/YOUR REPO HERE"
+                      href="https://github.com/minnesotanlp/artifacts-of-llmgendata"
                       target="_blank"
-                      class="external-link button is-normal is-rounded is-dark is-static"
+                      class="external-link button is-normal is-rounded is-dark is-outlined"
                     >
                       <span class="icon">
                         <i class="fab fa-github"></i>
@@ -221,21 +186,17 @@
                     </a>
                   </span>
 
-                  <!-- Huggingface daya Link -->
+                  <!-- Huggingface data Link -->
                   <span class="link-block">
                     <a
-                      href="https://"
+                      href="https://huggingface.co/datasets/minnesotanlp/LLM-Artifacts"
                       target="_blank"
-                      class="external-link button is-normal is-rounded is-dark is-static"
+                      class="external-link button is-normal is-rounded is-dark is-outlined"
                     >
                       <span class="icon">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-clipboard-data" viewBox="0 0 16 16">
-                          <path d="M4 11a1 1 0 1 1 2 0v1a1 1 0 1 1-2 0zm6-4a1 1 0 1 1 2 0v5a1 1 0 1 1-2 0zM7 9a1 1 0 0 1 2 0v3a1 1 0 1 1-2 0z"/>
-                          <path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1z"/>
-                          <path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0z"/>
-                        </svg>
+                        <img src="static/logos/hf-logo.svg" width="25" height="25"></img>
                       </span>
-                      <span>Data (on Huggingface)</span>
+                      <span>Data</span>
                     </a>
                   </span>
                 </div>
@@ -246,92 +207,63 @@
       </div>
     </section>
 
-    <section class="section hero">
-      <div class="columns is-centered has-text-centered">
-        <div class="column is-5 is-offset-1">
+
           <div class="container is-max-desktop">
             <div class="columns is-centered">
-              <div class="column is-four-fifths">
+              <div class="column is-8">
                   <img
                     src="static/images/iceberg_modified.jpg"
                     class="center-image"
                   />
-                </div>
               </div>
             </div>
           </div>
-        <!-- Paper abstract -->
-        <div class="column is-5">
-          <div class="container is-max-desktop">
-            <div class="columns has-text-centered">
-              <div class="column is-four-fifths">
-                <h2 class="title">Abstract</h2>
-                <div class="content has-text-justified">
-                  <p>
-                    This work delves into the expanding role of large language models (LLMs) in generating artificial data, traditionally the domain of human expertise. It critically examines the quality and implications of LLM-generated artificial data, comparing it with human data across various benchmarks. Despite its capability to match human performance, the paper reveals significant hidden disparities, especially in complex tasks where LLMs often miss the nuanced understanding intrinsic to human-generated content. This study conducts comprehensive stress tests on diverse LLM-generated data, proposes novel evaluation methods, and emphasizes the need for ethical practices in data creation and use. It highlights the LLMs' shortcomings in replicating human traits and behaviors, underscoring the importance of addressing biases and limitations in LLM-generated content for future research and development.
-                  </p>
+
+          <section class="section hero">
+            <div class="container is-max-desktop">
+              <div class="columns is-centered has-text-centered">
+                <div class="column is-four-fifths">
+                  <h2 class="title is-3">Abstract</h2>
+                  <div class="content has-text-justified">
+                    <p>
+                      This work delves into the expanding role of large language models (LLMs) in generating artificial data. LLMs are increasingly employed to create a variety of outputs, including free text, simulated dialogues, annotations, instruction prompts, and evaluation. As these forms of LLM-generated data are often intertwined in their application, they exert mutual influence on each other and raise significant concerns about the quality and diversity of the artificial data incorporated into training cycles, called <i>artificial data ecosystem</i>. We critically examine the quality and implications of LLM-generated artificial data, comparing it with human data across various benchmarks. Despite its capability to match human performance, this paper reveals significant hidden disparities, especially in complex tasks where LLMs often miss the nuanced understanding intrinsic to human-generated content. This study conducts comprehensive stress tests on diverse LLM-generated data, proposes novel evaluation methods, and emphasizes the need for ethical practices in data creation and use. It highlights the LLMs' shortcomings in replicating human traits and behaviors, underscoring the importance of addressing biases and limitations in LLM-generated content for future research and development.
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-        <!-- End paper abstract -->
-        </div>
-      </div>
-    </section>
-    
-    
+          </section>
+        
+    <!-- Research question start -->
     <section class="section hero is-small is-light">
       <div class="container is-max-desktop">
-        <div class="notification is-warning is-light">
-            <button class="delete"></button>
-            <b>Comment:</b> Should we delete this section? - Bin
-        </div>
-        <div class="columns is-centered">
-          <div class="column">
-            <div class="content">
-              <h2 class="title is-3">Research Questions</h2>
-              <div class="level-set has-text-justified">
-                <p><b>RQ1</b> What is the nature of SOTA artificial data? How does it compare to human data, and what artifacts does it contain?</p>
-                <p><b>RQ2</b> Does training on artificial data compromise performance outcomes compared to similar human-generated data?</p>
-                <p><b>RQ3</b> How specific are the artifacts of artificial data to certain types of data produced by large language models (LLMs), and how much do they apply to all types of data generated by LLMs?</p>
-              </div>
-            </div>
-          </div>
-          
-          <div class="column">
-            <div class="content">
-              <h2 class="title is-3">Takeaways</h2>
-              <div class="level-set has-text-justified">
-                <ul>
-                  <li>LLMs struggle to respond effectively when faced with unknown or unfamiliar situations.</li>
-                  <li>LLMs demonstrate a subpar understanding of complex human opinions and interactions.</li>
-                  <li>LLMs are deficient in accurately mirroring human behavior for particular tasks</li>
-                  <li>Models trained on LLM data containing the above issues have degraded performance.</li>
-                </ul>
-              </div>
-              <!-- <img src="static\images\order_effect.jpg" alt="Testing methods" class="center-image"/> -->
-            </div>
+        <div class="content">
+          <h2 class="title is-3">Research Questions</h2>
+          <div class="level-set has-text-justified">
+            <p><b>RQ1</b> What is the nature of SOTA artificial data? How does it compare to human data, and what artifacts does it contain?</p>
+            <p><b>RQ2</b> Does training on artificial data compromise performance outcomes compared to similar human-generated data?</p>
+            <p><b>RQ3</b> How specific are the artifacts of artificial data to certain types of data produced by large language models (LLMs), and how much do they apply to all types of data generated by LLMs?</p>
           </div>
         </div>
-      </div>
     </section>
+    <!-- Research question end -->
 
+    <!-- Data type start -->
     <section class="section hero is-small">
       <div class="container is-max-desktop">
         <div class="columns is-centered">
           <div class="column is-full">
             <div class="content">
               <h2 class="title is-3">Types of Artificial Data</h2>
-              <img src="static\images\type_data.jpg" alt="type_data.jpg" class="center-image"/>
+              <img src="static\images\type_data.png" alt="type_data.png" class="center-image"/>
               <div class="level-set has-text-justified">
                 <p>
                   <ul>
-                    <li><b>Free-Form Text</b> written by an LLM, often used to compensate for data scarcity issues and used for pretraining and/or finetuning.</li>
-                    <li><b>Task Labels</b> for classification tasks over textual input, bypassing the need for human annotators.</li>
-                    <li><b>Instruction prompts</b> written by LLMs for instruction fine-tuning, eliminating the need for humans to write comprehensive sets of diverse instructions.</li>
-                    <li><b>Preference</b> specifically evaluating which text is better, is useful for human alignment tasks such as training reward models used in RLHF.</li>
-                    <li><b>Simulation</b> where two large language model (LLM) agents converse, has potential for enhancing model performance and simulating intricate social interactions, according to initial studies.</li>
+                    <li><b>Free-Form Text</b> written by an LLM, often used to compensate for data scarcity issues and used for pretraining and/or finetuning. (Dataset: <a href="https://arxiv.org/abs/2301.07597">HC3</a>, <a href="https://aclanthology.org/2022.acl-long.501/">Scarecrow</a>, <a href="https://arxiv.org/abs/2305.13242">Deepfake</a>, <a href="https://arxiv.org/abs/2304.13861">Workers</a>)</li>
+                    <li><b>Task Labels</b> for classification tasks over textual input, bypassing the need for human annotators. (Dataset: <a href="https://dl.acm.org/doi/10.1145/3173574.3173986">Sentiment</a>, <a href="https://arxiv.org/abs/1911.03891">SBIC</a>, <a href="https://link.springer.com/article/10.1007/s10579-021-09569-x">GHC</a>, <a href="https://arxiv.org/abs/2011.00620">Social Chem.</a>)</li> 
+                    <li><b>Instruction prompts</b> written by LLMs for instruction fine-tuning, eliminating the need for humans to write comprehensive sets of diverse instructions.</li> (Dataset: <a href="https://arxiv.org/abs/2212.09689">Unnat. Instr.</a>, <a href="https://arxiv.org/abs/2212.10560">Self-Instruct</a>, <a href="https://github.com/tatsu-lab/stanford_alpaca">Alpaca-cleaned</a>, <a href="https://arxiv.org/abs/2304.03277">GPT-4-LLM</a>, <a href="https://www.databricks.com/blog/2023/04/12/dolly-first-open-commercially-viable-instruction-tuned-llm">FLAN</a>, <a href="https://www.databricks.com/blog/2023/04/12/dolly-first-open-commercially-viable-instruction-tuned-llm">Dolly</a>, <a href="https://aclanthology.org/2022.emnlp-main.340/">SuperNat. Instr.</a>, <a href="https://github.com/XueFuzhao/InstructionWild">Instr. in the Wild</a>)
+                    <li><b>Preference</b> specifically evaluating which text is better, is useful for human alignment tasks such as training reward models used in RLHF. (Dataset: <a href="https://arxiv.org/abs/2309.17012">CoBBLEr</a>, <a href="https://arxiv.org/abs/2306.04925">P2C</a>)
+                    <li><b>Simulation</b> where two large language model (LLM) agents converse, has potential for enhancing model performance and simulating intricate social interactions, according to initial studies. (Dataset: <a href="https://arxiv.org/abs/2307.05300">Grid-World</a>, <a href="https://arxiv.org/abs/2303.17760">CAMEL</a>)</li> 
                   </ul>
                 </p>
               </div>
@@ -340,6 +272,7 @@
         </div>
       </div>
     </section>
+    <!-- Data type end -->
 
 
     <section class="section hero is-small is-light">
@@ -347,7 +280,7 @@
         <div class="columns is-centered">
           <div class="column is-full">
             <div class="content">
-              <h2 class="title is-3">Main Contributions</h2>
+              <h2 class="title is-3">Research Contributions</h2>
               <div class="level-set has-text-justified">
               <ul>
                 <li>We <b>aggregate and conduct comprehensive stress tests</b> on various data generated by LLMs, offering a thorough evaluation of the quality, consistency, and reliability of LLM outputs across diverse models and scenarios, thereby providing a groundbreaking insight into their strengths and weaknesses for future research and development.</li>
@@ -363,95 +296,123 @@
     <section class="section hero is-small">
         <div class="container is-max-desktop">
             <div class="content">
-                <h2 class="title is-3">Main Findings</h2>
-                <div class="notification is-danger is-light">
-                    <button class="delete"></button>
-                    <b>TO DO</b>
-                    <p>Current plots are just place holder.</p>
-                </div>
+                <h2 class="title is-3">Key Takeaways</h2>
                 <ul>
-                    <li>LLMs tend to fall short in complex tasks, often <b>missing the subtleties and nuanced understanding</b> found in human-generated data, particularly in areas like minority perspectives and complex preferences. </li>
+                    <li><p class="subtitle">LLMs demonstrate a subpar understanding of complex human opinions and interactions.</p></li>
                             <div class="hero-body">
                                 <div class="container">
                                     <div id="results-carousel" class="carousel results-carousel">
                                         <div class="item">
-                                            <p class="subtitle has-text-centered"><b>Free Text</b> - section 5.2</p>
-                                            <img src="static/images/attributef1scatter.JPG" alt="MY ALT TEXT" style="max-height: 500px">
+                                            <p class="subtitle has-text-centered"><b>Task Labels</b> - section 6.1</p>
+                                            <div style="display: flex; justify-content: center;">
+                                              <img src="/static/images/9.png" style="max-height: 260px;">
+                                            </div>
                                             <p class="subtitle is-6 has-text-centered">
-                                                Scatterplot comparing (a) the label-level F1 differences in performance for models trained on human-text vs machine-text, and (b) selected mean label-level attribute difference. For these attributes---neutral emotion, sadness, metaphor, and joy---we find <i>a correlation between how much training on only machine text decreases the F1 score on the test set</i>, and how much the high-level attributes such as <i>sadness</i> differ among the machine and human texts.
+                                              While generating <b>task labels</b>, LLMs over-represent majority opinions and do not match minority opinions well. They also show a tendency to be misleadingly confident concerning sentences with age, gender, religion, and race bias.
                                             </p>
                                         </div>
+                                            
                             
                                         <div class="item">
-                                            <p class="subtitle has-text-centered"><b>Task Labels</b> - section 6.2</p>
-                                            <img src="static/images/sorted-inter_alpha0.8_whole_1e-05-before-after.JPG" alt="MY ALT TEXT" style="max-height: 500px">
+                                            <p class="subtitle has-text-centered"><b>Free-Form Text</b> - section 5.1</p>
+                                            <img src="/static/images/7.png" style="max-height: 260px;">
                                             <p class="subtitle is-6 has-text-centered">
-                                                The label distribution graph for the Sentiment and SChem Dataset, before and after fine-tuning a RoBERTa classifier, indicates that <i>pre-existing biases in label distribution</i>---such as imbalances in the original dataset (1st order)---<i>tend to become more pronounced after the fine-tuning process (2nd order).</i>
+                                              In creating <b>free-form text</b>, LLMs exhibit styles that differ significantly from human approaches in diverse social contexts. Moreover, unlike human discourse, which varies widely across domains, LLM discourse patterns remain relatively consistent.
                                             </p>
                                         </div>
+
+                                        <div class="item">
+                                          <p class="subtitle has-text-centered"><b>Preferences</b> - section 8.1</p>
+                                          <img src="/static/images/15.png" style="max-height: 260px;">
+                                          <p class="subtitle is-6 has-text-centered">
+                                            For elicitation of <b>preferences</b>, we find that LLM preferences are tightly coupled with standalone lexical cues, whereas human preferences appear to take a more holistic approach.
+                                          </p>
+                                      </div>
                                     </div>
                                 </div>
                             </div>
-                    <li>LLM-generated texts frequently <b>lack human traits</b> such as humor and sarcasm and <b>do not mirror the structural complexities and styles</b> typical in human writing and conversations, especially in problem-solving scenarios.</li>
+                    <li><p class="subtitle">LLMs struggle to respond effectively when faced with unknown or unfamiliar situations.</p></li>
                     <div class="hero-body">
                         <div class="container">
                             <div id="results-carousel" class="carousel results-carousel">
                                 <div class="item">
-                                    <p class="subtitle has-text-centered"><b>Free Text</b> - section 5.2</p>
-                                    <img src="static/images/attributef1scatter.JPG" alt="MY ALT TEXT" style="max-height: 500px">
+                                    <p class="subtitle has-text-centered"><b>Simulation</b> - section 9.1</p>
+                                    <div style="display: flex; justify-content: center;">
+                                      <img src="/static/images/17.png" style="max-height: 260px;">
+                                    </div>
                                     <p class="subtitle is-6 has-text-centered">
-                                        Scatterplot comparing (a) the label-level F1 differences in performance for models trained on human-text vs machine-text, and (b) selected mean label-level attribute difference. For these attributes---neutral emotion, sadness, metaphor, and joy---we find <i>a correlation between how much training on only machine text decreases the F1 score on the test set</i>, and how much the high-level attributes such as <i>sadness</i> differ among the machine and human texts.
+                                      In LLM <b>simulations</b> (i.e. conversations between two LLM agents), one of the most common errors is role flipping, or the agents swapping their assigned roles. This happens most frequently when the agent becomes confused, indicating that the simulation breaks down when an agent does not understand how to respond.
                                     </p>
                                 </div>
                     
                                 <div class="item">
-                                    <p class="subtitle has-text-centered"><b>Task Labels</b> - section 6.2</p>
-                                    <img src="static/images/sorted-inter_alpha0.8_whole_1e-05-before-after.JPG" alt="MY ALT TEXT" style="max-height: 500px">
+                                    <p class="subtitle has-text-centered"><b>Instructions</b> - section 7.1</p>
+                                    <div style="display: flex; justify-content: center;">
+                                      <img src="/static/images/13.png" style="max-height: 260px;">
+                                    </div>
                                     <p class="subtitle is-6 has-text-centered">
-                                        The label distribution graph for the Sentiment and SChem Dataset, before and after fine-tuning a RoBERTa classifier, indicates that <i>pre-existing biases in label distribution</i>---such as imbalances in the original dataset (1st order)---<i>tend to become more pronounced after the fine-tuning process (2nd order).</i>
+                                      In <b>instruction</b> writing, LLMs may provide incorrect outputs for a written instruction rather than an output that indicates uncertainty or lack of knowledge of the answer. In downstream training, these incorrect outputs result in more hallucinations produced by instruction-tuned models.</i>
                                     </p>
                                 </div>
                             </div>
                         </div>
                     </div>
-                    <li>These shortcomings become evident as LLMs struggle in <b>unfamiliar situations</b>, generating <b>incorrect outputs</b>, <b>exhibiting biases</b>, and failing to accurately replicate human behavior, leading to <b>decreased performance in models trained on such LLM-generated data</b>.</li>
+                    <li><p class="subtitle">LLMs are deficient in accurately mirroring human behavior for particular tasks.</p></li>
+                    <div class="hero-body">
+                        <div class="container">
+                          <p class="subtitle has-text-centered"><b>Simulation</b> - section 9.1</p>
+                          <div style="display: flex; justify-content: center;">
+                            <img src="/static/images/19.png" style="max-height: 260px;">
+                          </div>
+                          <p class="subtitle is-6 has-text-centered">
+                            In <b>simulations</b>, where LLM agents engage in conversations focused on problem-solving, these agents often stray from the main topic, negatively impacting task performance. This contrasts with human digressions, facilitating team building and contributing to more effective problem resolution.
+                          </p>
+                        </div>
+                    </div>
+                    <li><p class="subtitle">Models trained on LLM data containing the above issues have degraded performance.</p></li>
                     <div class="hero-body">
                         <div class="container">
                             <div id="results-carousel" class="carousel results-carousel">
                                 <div class="item">
-                                    <p class="subtitle has-text-centered"><b>Free Text</b> - section 5.2</p>
-                                    <img src="static/images/attributef1scatter.JPG" alt="MY ALT TEXT" style="max-height: 500px">
+                                    <p class="subtitle has-text-centered"><b>Free-Form Text</b> - section 5.2</p>
+                                    <div style="display: flex; justify-content: center;">
+                                      <img src="/static/images/8.png" style="max-height: 260px;">
+                                    </div>
                                     <p class="subtitle is-6 has-text-centered">
-                                        Scatterplot comparing (a) the label-level F1 differences in performance for models trained on human-text vs machine-text, and (b) selected mean label-level attribute difference. For these attributes---neutral emotion, sadness, metaphor, and joy---we find <i>a correlation between how much training on only machine text decreases the F1 score on the test set</i>, and how much the high-level attributes such as <i>sadness</i> differ among the machine and human texts.
+                                      We find that models trained on several types of LLM-generated data -- specifically <b>instructions</b>, <b>free-form text</b>, and <b>preferences</b> -- are at risk for degraded performance when compared to models trained on corresponding human data. In addition, these performance deficits appear to be tied to artifacts in LLM-generated data. 
                                     </p>
                                 </div>
-                    
                                 <div class="item">
-                                    <p class="subtitle has-text-centered"><b>Task Labels</b> - section 6.2</p>
-                                    <img src="static/images/sorted-inter_alpha0.8_whole_1e-05-before-after.JPG" alt="MY ALT TEXT" style="max-height: 500px">
-                                    <p class="subtitle is-6 has-text-centered">
-                                        The label distribution graph for the Sentiment and SChem Dataset, before and after fine-tuning a RoBERTa classifier, indicates that <i>pre-existing biases in label distribution</i>---such as imbalances in the original dataset (1st order)---<i>tend to become more pronounced after the fine-tuning process (2nd order).</i>
-                                    </p>
+                                  <p class="subtitle has-text-centered"><b>Task Labels</b> - section 6.2</p>
+                                  <div style="display: flex; justify-content: center;">
+                                    <img src="/static/images/12.jpg" style="max-height: 260px;">
+                                  </div>
+                                  <p class="subtitle is-6 has-text-centered">
+                                    We find that models trained on several types of LLM-generated data -- specifically <b>instructions</b>, <b>free-form text</b>, and <b>preferences</b> -- are at risk for degraded performance when compared to models trained on corresponding human data. In addition, these performance deficits appear to be tied to artifacts in LLM-generated data. 
+                                  </p>
                                 </div>
+                                <div class="item">
+                                  <p class="subtitle has-text-centered"><b>Instructions</b> - section 7.2</p>
+                                  <div style="display: flex; justify-content: center;">
+                                    <img src="/static/images/14.png" style="max-height: 260px;">
+                                  </div>
+                                  <p class="subtitle is-6 has-text-centered">
+                                    We find that models trained on several types of LLM-generated data -- specifically <b>instructions</b>, <b>free-form text</b>, and <b>preferences</b> -- are at risk for degraded performance when compared to models trained on corresponding human data. In addition, these performance deficits appear to be tied to artifacts in LLM-generated data. 
+                                  </p>
+                              </div>
+                              <div class="item">
+                                <p class="subtitle has-text-centered"><b>Preferences</b> - section 8.2</p>
+                                <div style="display: flex; justify-content: center;">
+                                  <img src="/static/images/16.png" style="max-height: 260px;">
+                                </div>
+                                <p class="subtitle is-6 has-text-centered">
+                                  We find that models trained on several types of LLM-generated data -- specifically <b>instructions</b>, <b>free-form text</b>, and <b>preferences</b> -- are at risk for degraded performance when compared to models trained on corresponding human data. In addition, these performance deficits appear to be tied to artifacts in LLM-generated data. 
+                                </p>
+                              </div>
                             </div>
                         </div>
                     </div>
                 </ul>
-            </div>
-        </div>
-    </section>
-
-
-    <section class="section hero is-small is-light">
-        <div class="hero-body">
-            <div class="container is-max-desktop">
-                <div class="content">
-                    <h2 class="title is-3">Qualitative Analysis</h2>
-                </div>
-                <div class="notification is-danger is-light">
-                    <button class="delete"></button>
-                    <b>TO DO</b>
-                </div>
             </div>
         </div>
     </section>
