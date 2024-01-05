@@ -10,7 +10,6 @@ import re
 import json
 import torch
 import time
-from scipy.special import softmax
 modes = ['frequency', 'data-frequency', 'sorted', 'shuffle']
 sources = ['human', 'inter']
 dataset_names = ['Sentiment', 'SChem5Labels', 'ghc', 'SBIC']
@@ -166,6 +165,7 @@ def main(suffix, flatten):
     '''
     Creates and saves dictionary containing label data
     Saved files are used in before_after_line_plots
+    TODO: rename
     
     Parameters:
         suffix: string to append to filename
@@ -248,10 +248,13 @@ def get_gold_label_ratio(res):
 
 if __name__ == '__main__':
     '''
+    # needs to be run twice, once with flatten=True and once with flatten=False
+    # once we have the data, this can be completelu commented out again
     for flatten in [False]:
         for suffix in ["_alpha0.8_whole_1e-05"]:
-            main(suffix, flatten=flatten)
+            main(suffix, flatten=flatten) # creates and saves dictionary containing label data
     '''
+
     for suffix in ['_alpha0.8_whole_1e-05']:
         write_to = f'res{suffix}'
         with open(write_to+'.json') as f:

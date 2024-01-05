@@ -8,19 +8,16 @@ import torch
 from accelerate import Accelerator
 import random
 from collections import Counter
-BATCH_SIZE = -1
+BATCH_SIZE = 32
 RANDOM_SEED = 42
-from accelerate import Accelerator, DistributedType, DeepSpeedPlugin
+from accelerate import Accelerator, DeepSpeedPlugin
 from accelerate.state import AcceleratorState
+accelerator = Accelerator()
 
 def get_batch_size(dataset_name):
     # 1 when model is xl+
-    if dataset_name in ['SChem5Labels', 'Sentiment']:
-        BATCH_SIZE = 32
-    elif dataset_name in ['SBIC', 'ghc']:
-        BATCH_SIZE = 32
-    else:
-        raise Exception("dataset_name not supported or not entered")
+    # accepting dataset_name as an argument in case we want to change it according to the data
+    # currently not in use but need this for future changes
     return BATCH_SIZE
 
 def get_deepspeed_plugin():
@@ -32,10 +29,7 @@ def get_accelerator(deepspeed_plugin=None):
     #    deepspeed_plugin = get_deepspeed_plugin()
     #print(deepspeed_plugin)
     #accelerator = Accelerator(mixed_precision='fp16', deepspeed_plugin=deepspeed_plugin)
-    accelerator = Accelerator()
     return accelerator
-accelerator = get_accelerator() 
-
 
 def seed_init_fn(seed):
     np.random.seed(seed)
@@ -179,8 +173,6 @@ def get_data(filename, dataset_name, mode="sorted", model_id="roberta-base"):
     model_df = format_dataset_roberta(filename, dataset_name, mode)
     grouping = 'inter' if 'inter' in filename else 'intra'
     dataset = split(model_df, dataset_name, grouping, mode)
-    #print(f"Train dataset size: {len(intra_dataset['train'])}")
-    #print(f"Test dataset size: {len(inter_dataset['test'])}")
     return dataset
 
 def get_tokenized_data(filename, dataset, tokenizer, remove_columns, mode="sorted", target_col="model_annots_str", model_id="roberta-base"):
@@ -202,11 +194,6 @@ def get_tokenized_data(filename, dataset, tokenizer, remove_columns, mode="sorte
                 if not (0 <= int(sample[target][row_i][annot_i]) and int(sample[target][row_i][annot_i]) < num_labels):
                     model_inputs['labels'][row_i][annot_i] = -1
             model_inputs['labels'][row_i] += [-1]*(num_annots - len(model_inputs['labels'][row_i]))
-                #else:
-                #    model_inputs[row_i][annot_i] = int(sample[target][row_i][annot_i])
-        #raise Exception("roberta-base not supported yet")
-        #model_inputs['labels'] = [(el if (0 <= el and el < num_labels) else -1 for el in sample[target]]
-        #model_inputs['labels'] += [-1]*(num_annots - len(model_inputs['labels']))
         for key in model_inputs:
             model_inputs[key] = torch.tensor(model_inputs[key]).to(accelerator.device)
         return model_inputs

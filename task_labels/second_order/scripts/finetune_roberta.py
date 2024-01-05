@@ -59,6 +59,7 @@ class CustomValueDistanceLoss(nn.Module):
             return 0
         loss = 0.5 * torch.mean((y_true - y_pred)**2)
         return loss
+
 val_dist_fct = CustomValueDistanceLoss()
 
 class MultiTaskRobertaModel(nn.Module):
@@ -78,8 +79,6 @@ class MultiTaskRobertaModel(nn.Module):
 
 class CustomTrainer(Trainer):
     def __init__(self, *args, **kwargs):
-        print('args', args)
-        print('kwargs', kwargs)
         self.alpha = kwargs.pop('alpha')
         super().__init__(*args, **kwargs)
 
