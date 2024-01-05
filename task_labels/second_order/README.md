@@ -29,7 +29,8 @@ Please contact authors for outputs from the finetuned model.
 
 - `visualize.py`:
   - Description: Create visualizations from gold labels and the outputs from the finetuned RoBERTa-base model.
-  #- Usage:
-  #  ```bash
-  #  python script2.py --input input_data.json --output output_result.csv
-  #  ```
+  - Usage:
+    ```bash
+    # make sure the if __name__=="__main__" block calls the expected functions (based on what outputs you want/have)
+    python3 visualize.py 
+    ```
