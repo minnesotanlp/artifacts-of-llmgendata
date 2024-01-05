@@ -20,14 +20,11 @@ Please contact authors for outputs from the finetuned model.
     bash run.sh 
     ```
 
-- `model.py`:
-  - Description: Custom model class. Imported into other files and not used on its own.
-
 - `utils.py`:
   - Description: Contains functions shared between finetune_roberta.py and visualized.py. Imported into other files and not used on its own.
 
 - `finetune_roberta.py`:
-  - Description: Finetune RoBERTA-base model
+  - Description: Finetune RoBERTA-base model. Includes code from multi-headed RoBERTa class and custom trainer.
   - Usage: Example commands contains in run.sh
 
 - `visualize.py`:
