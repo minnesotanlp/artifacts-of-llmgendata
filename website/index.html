@@ -24,6 +24,7 @@
     <script src="static/js/bulma-carousel.min.js"></script>
     <script src="static/js/bulma-slider.min.js"></script>
     <script src="static/js/index.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
   </head>
   <body>
     <section class="hero is-warning">
@@ -134,9 +135,7 @@
               </div>
 
               <div class="is-size-5 publication-authors">
-                <button class="button is-medium is-black is-inverted" style="color: #4a4a4a;">
-                  <span class="author-block">Minnesota NLP Group</span><img src="static/logos/mnnlp.png" style="height: 1em; margin-inline: 5px;"><span class="author-block"></span>, University of Minnesota
-                </button>
+                <a class="subtitle" style="color: black !important;" href="https://minnesotanlp.github.io/">Minnesota NLP Group<img src="static/logos/mnnlp.png" style="height: 1em; margin-inline: 5px;">, University of Minnesota</a>
                 <span class="eql-cntrb"
                   ><small
                     ><br /><sup>*</sup>Core Contributor <sup>†</sup>Project Lead</small
@@ -271,7 +270,7 @@
                         <img src="static/logos/hf-logo.svg" width="25" height="25"></img>
                       </span>
                       <a href="https://huggingface.co/datasets/minnesotanlp/LLM-Artifacts"
-                      target="_blank">Check the datasets on our Huggingface Dataset Card</a>
+                      target="_blank">Check datasets on Huggingface</a>
                     </button>
                   </ul>
                 </p>
@@ -302,129 +301,17 @@
 
     </section>
 
-    <section class="section hero is-small">
+    <span id="takeaway">
+      <section class="section hero is-small">
         <div class="container is-max-desktop">
-            <div class="content">
-                <h2 class="title is-3">Key Takeaways</h2>
-                <ul>
-                    <li><p class="subtitle">LLMs demonstrate a subpar understanding of complex human opinions and interactions.</p></li>
-                            <div class="hero-body">
-                                <div class="container">
-                                    <div id="results-carousel" class="carousel results-carousel">
-                                        <div class="item">
-                                            <p class="subtitle has-text-centered"><b>Task Labels</b> - section 6.1</p>
-                                            <div style="display: flex; justify-content: center;">
-                                              <img src="/static/images/9.png" style="max-height: 260px;">
-                                            </div>
-                                            <p class="subtitle is-6 has-text-centered">
-                                              While generating <b>task labels</b>, LLMs over-represent majority opinions and do not match minority opinions well. They also show a tendency to be misleadingly confident concerning sentences with age, gender, religion, and race bias.
-                                            </p>
-                                        </div>
-                                            
-                            
-                                        <div class="item">
-                                            <p class="subtitle has-text-centered"><b>Free-Form Text</b> - section 5.1</p>
-                                            <img src="/static/images/7.png" style="max-height: 260px;">
-                                            <p class="subtitle is-6 has-text-centered">
-                                              In creating <b>free-form text</b>, LLMs exhibit styles that differ significantly from human approaches in diverse social contexts. Moreover, unlike human discourse, which varies widely across domains, LLM discourse patterns remain relatively consistent.
-                                            </p>
-                                        </div>
-
-                                        <div class="item">
-                                          <p class="subtitle has-text-centered"><b>Preferences</b> - section 8.1</p>
-                                          <img src="/static/images/15.png" style="max-height: 260px;">
-                                          <p class="subtitle is-6 has-text-centered">
-                                            For elicitation of <b>preferences</b>, we find that LLM preferences are tightly coupled with standalone lexical cues, whereas human preferences appear to take a more holistic approach.
-                                          </p>
-                                      </div>
-                                    </div>
-                                </div>
-                            </div>
-                    <li><p class="subtitle">LLMs struggle to respond effectively when faced with unknown or unfamiliar situations.</p></li>
-                    <div class="hero-body">
-                        <div class="container">
-                            <div id="results-carousel" class="carousel results-carousel">
-                                <div class="item">
-                                    <p class="subtitle has-text-centered"><b>Simulation</b> - section 9.1</p>
-                                    <div style="display: flex; justify-content: center;">
-                                      <img src="/static/images/17.png" style="max-height: 260px;">
-                                    </div>
-                                    <p class="subtitle is-6 has-text-centered">
-                                      In LLM <b>simulations</b> (i.e. conversations between two LLM agents), one of the most common errors is role flipping, or the agents swapping their assigned roles. This happens most frequently when the agent becomes confused, indicating that the simulation breaks down when an agent does not understand how to respond.
-                                    </p>
-                                </div>
-                    
-                                <div class="item">
-                                    <p class="subtitle has-text-centered"><b>Instructions</b> - section 7.1</p>
-                                    <div style="display: flex; justify-content: center;">
-                                      <img src="/static/images/13.png" style="max-height: 260px;">
-                                    </div>
-                                    <p class="subtitle is-6 has-text-centered">
-                                      In <b>instruction</b> writing, LLMs may provide incorrect outputs for a written instruction rather than an output that indicates uncertainty or lack of knowledge of the answer. In downstream training, these incorrect outputs result in more hallucinations produced by instruction-tuned models.</i>
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <li><p class="subtitle">LLMs are deficient in accurately mirroring human behavior for particular tasks.</p></li>
-                    <div class="hero-body">
-                        <div class="container">
-                          <p class="subtitle has-text-centered"><b>Simulation</b> - section 9.1</p>
-                          <div style="display: flex; justify-content: center;">
-                            <img src="/static/images/19.png" style="max-height: 260px;">
-                          </div>
-                          <p class="subtitle is-6 has-text-centered">
-                            In <b>simulations</b>, where LLM agents engage in conversations focused on problem-solving, these agents often stray from the main topic, negatively impacting task performance. This contrasts with human digressions, facilitating team building and contributing to more effective problem resolution.
-                          </p>
-                        </div>
-                    </div>
-                    <li><p class="subtitle">Models trained on LLM data containing the above issues have degraded performance.</p></li>
-                    <div class="hero-body">
-                        <div class="container">
-                            <div id="results-carousel" class="carousel results-carousel">
-                                <div class="item">
-                                    <p class="subtitle has-text-centered"><b>Free-Form Text</b> - section 5.2</p>
-                                    <div style="display: flex; justify-content: center;">
-                                      <img src="/static/images/8.png" style="max-height: 260px;">
-                                    </div>
-                                    <p class="subtitle is-6 has-text-centered">
-                                      We find that models trained on several types of LLM-generated data -- specifically <b>instructions</b>, <b>free-form text</b>, and <b>preferences</b> -- are at risk for degraded performance when compared to models trained on corresponding human data. In addition, these performance deficits appear to be tied to artifacts in LLM-generated data. 
-                                    </p>
-                                </div>
-                                <div class="item">
-                                  <p class="subtitle has-text-centered"><b>Task Labels</b> - section 6.2</p>
-                                  <div style="display: flex; justify-content: center;">
-                                    <img src="/static/images/12.jpg" style="max-height: 260px;">
-                                  </div>
-                                  <p class="subtitle is-6 has-text-centered">
-                                    We find that models trained on several types of LLM-generated data -- specifically <b>instructions</b>, <b>free-form text</b>, and <b>preferences</b> -- are at risk for degraded performance when compared to models trained on corresponding human data. In addition, these performance deficits appear to be tied to artifacts in LLM-generated data. 
-                                  </p>
-                                </div>
-                                <div class="item">
-                                  <p class="subtitle has-text-centered"><b>Instructions</b> - section 7.2</p>
-                                  <div style="display: flex; justify-content: center;">
-                                    <img src="/static/images/14.png" style="max-height: 260px;">
-                                  </div>
-                                  <p class="subtitle is-6 has-text-centered">
-                                    We find that models trained on several types of LLM-generated data -- specifically <b>instructions</b>, <b>free-form text</b>, and <b>preferences</b> -- are at risk for degraded performance when compared to models trained on corresponding human data. In addition, these performance deficits appear to be tied to artifacts in LLM-generated data. 
-                                  </p>
-                              </div>
-                              <div class="item">
-                                <p class="subtitle has-text-centered"><b>Preferences</b> - section 8.2</p>
-                                <div style="display: flex; justify-content: center;">
-                                  <img src="/static/images/16.png" style="max-height: 260px;">
-                                </div>
-                                <p class="subtitle is-6 has-text-centered">
-                                  We find that models trained on several types of LLM-generated data -- specifically <b>instructions</b>, <b>free-form text</b>, and <b>preferences</b> -- are at risk for degraded performance when compared to models trained on corresponding human data. In addition, these performance deficits appear to be tied to artifacts in LLM-generated data. 
-                                </p>
-                              </div>
-                            </div>
-                        </div>
-                    </div>
-                </ul>
-            </div>
+          <div class="content">
+            <h2 class="title is-3">Key Takeaways</h2>
+            !!! You need the JavaScript enabled to view the Takeaways section correctly.
+          </div>
         </div>
-    </section>
+      </section>
+    </span>
+    
 
     <!--BibTex citation -->
     <section class="section" id="BibTeX">
@@ -458,6 +345,35 @@
         </div>
       </div>
     </footer>
+    <script>
+      function loadHtmlWithScripts(targetElemId, filePath) {
+          return fetch(filePath)
+              .then((response) => response.text())
+              .then((data) => {
+                  const targetElem = document.getElementById(targetElemId);
+                  targetElem.innerHTML = data;
+
+                  const scripts = targetElem.querySelectorAll("script");
+                  scripts.forEach((script) => {
+                      const newScript = document.createElement("script");
+                      if (script.src) {
+                          newScript.src = script.src;
+                      } else {
+                          newScript.textContent = script.textContent;
+                      }
+                      document.body.appendChild(newScript);
+                      newScript.remove();
+                  });
+              });
+      }
+      function loadTakeaway() {
+          const filePath = window.innerWidth < 1024 ? 'takeaway-mobile.html' : 'takeaway-pc.html';
+          loadHtmlWithScripts('takeaway', filePath);
+      }
+
+      loadTakeaway();
+
+    </script>
 
     <!-- Statcounter tracking code -->
 
