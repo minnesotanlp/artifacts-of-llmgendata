@@ -42,3 +42,7 @@ For CoBBLEr preference datasets,
 For p2c preference datasets, 
 - `output1`, `output2`: the first sentence (*sentence 1*) and the second sentence (*sentence 2*), respectively
 - `target`: the corresponding preference label (either by human or LLM)
+
+## Others
+In the data folder, we also included the original CoBBLEr data, where each `{model_name}.txt` represents the preference output made by that LLM.  
+Additionally, we also included the original **Hummingbird** dataset [(Hayati et al., 2021)](https://aclanthology.org/2021.emnlp-main.510/), which we have used for the first-order effect (specifically, _lexicon-based preference_) analysis of the p2c dataset. 
