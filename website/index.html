@@ -27,7 +27,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
   </head>
   <body>
-    <section class="hero is-warning">
+    <!-- <section class="hero is-warning">
         <div class="hero-body">
           <p class="title">
             Under Construction
@@ -36,7 +36,7 @@
             Internal preview only
           </p>
         </div>
-      </section>
+      </section> -->
     <section class="hero">
       <div class="hero-body">
         <div class="container is-max-desktop">
@@ -135,7 +135,7 @@
               </div>
 
               <div class="is-size-5 publication-authors">
-                <a class="subtitle" style="color: black !important;" href="https://minnesotanlp.github.io/">Minnesota NLP Group<img src="static/logos/mnnlp.png" style="height: 1em; margin-inline: 5px;">, University of Minnesota</a>
+                <a class="subtitle" style="color: black !important;" href="https://minnesotanlp.github.io/">Minnesota NLP Lab<img src="static/logos/mnnlp.png" style="height: 1em; margin-inline: 5px;">, University of Minnesota</a>
                 <span class="eql-cntrb"
                   ><small
                     ><br /><sup>*</sup>Core Contributor <sup>†</sup>Project Lead</small
@@ -227,7 +227,7 @@
                   <h2 class="title is-3">Abstract</h2>
                   <div class="content has-text-justified">
                     <p>
-                      This work delves into the expanding role of large language models (LLMs) in generating artificial data. LLMs are increasingly employed to create a variety of outputs, including free text, simulated dialogues, annotations, instruction prompts, and evaluation. As these forms of LLM-generated data are often intertwined in their application, they exert mutual influence on each other and raise significant concerns about the quality and diversity of the artificial data incorporated into training cycles, called <i>artificial data ecosystem</i>. We critically examine the quality and implications of LLM-generated artificial data, comparing it with human data across various benchmarks. Despite its capability to match human performance, this paper reveals significant hidden disparities, especially in complex tasks where LLMs often miss the nuanced understanding intrinsic to human-generated content. This study conducts comprehensive stress tests on diverse LLM-generated data, proposes novel evaluation methods, and emphasizes the need for ethical practices in data creation and use. It highlights the LLMs' shortcomings in replicating human traits and behaviors, underscoring the importance of addressing biases and limitations in LLM-generated content for future research and development.
+                      This work delves into the expanding role of large language models (LLMs) in generating artificial data. LLMs are increasingly employed to create a variety of outputs, including annotations, preferences, instruction prompts, simulated dialogues, and free text. As these forms of LLM-generated data often intersect in their application, they exert mutual influence on each other and raise significant concerns about the quality and diversity of the artificial data incorporated into training cycles, leading to an <i>artificial data ecosystem</i>. To the best of our knowledge, this is the first study to aggregate various types of LLM-generated text data, from more tightly constrained ones like “task labels” to more lightly constrained “free-form text”. We then stress test the quality and implications of LLM-generated artificial data, comparing it with human data across various existing benchmarks. Despite its capability to match human performance, this paper reveals significant hidden disparities, especially in complex tasks where LLMs often miss the nuanced understanding of intrinsic human-generated content. This study critically examines diverse LLM-generated data and emphasizes the need for ethical practices in data creation and use using LLMs. It highlights the LLMs' shortcomings in replicating human traits and behaviors, underscoring the importance of addressing biases and artifacts produced in LLM-generated content for future research and development.
                     </p>
                   </div>
                 </div>
@@ -260,17 +260,17 @@
               <div class="level-set has-text-justified">
                 <p>
                   <ul>
-                    <li><b>Free-Form Text</b> written by an LLM, often used to compensate for data scarcity issues and used for pretraining and/or finetuning. (Dataset: <a href="https://arxiv.org/abs/2301.07597">HC3</a>, <a href="https://aclanthology.org/2022.acl-long.501/">Scarecrow</a>, <a href="https://arxiv.org/abs/2305.13242">Deepfake</a>, <a href="https://arxiv.org/abs/2304.13861">Workers</a>)</li>
                     <li><b>Task Labels</b> for classification tasks over textual input, bypassing the need for human annotators. (Dataset: <a href="https://dl.acm.org/doi/10.1145/3173574.3173986">Sentiment</a>, <a href="https://arxiv.org/abs/1911.03891">SBIC</a>, <a href="https://link.springer.com/article/10.1007/s10579-021-09569-x">GHC</a>, <a href="https://arxiv.org/abs/2011.00620">Social Chem.</a>)</li> 
-                    <li><b>Instruction prompts</b> written by LLMs for instruction fine-tuning, eliminating the need for humans to write comprehensive sets of diverse instructions.</li> (Dataset: <a href="https://arxiv.org/abs/2212.09689">Unnat. Instr.</a>, <a href="https://arxiv.org/abs/2212.10560">Self-Instruct</a>, <a href="https://github.com/tatsu-lab/stanford_alpaca">Alpaca-cleaned</a>, <a href="https://arxiv.org/abs/2304.03277">GPT-4-LLM</a>, <a href="https://www.databricks.com/blog/2023/04/12/dolly-first-open-commercially-viable-instruction-tuned-llm">FLAN</a>, <a href="https://www.databricks.com/blog/2023/04/12/dolly-first-open-commercially-viable-instruction-tuned-llm">Dolly</a>, <a href="https://aclanthology.org/2022.emnlp-main.340/">SuperNat. Instr.</a>, <a href="https://github.com/XueFuzhao/InstructionWild">Instr. in the Wild</a>)
                     <li><b>Preference</b> specifically evaluating which text is better, is useful for human alignment tasks such as training reward models used in RLHF. (Dataset: <a href="https://arxiv.org/abs/2309.17012">CoBBLEr</a>, <a href="https://arxiv.org/abs/2306.04925">P2C</a>)
+                    <li><b>Instruction prompts</b> written by LLMs for instruction fine-tuning, eliminating the need for humans to write comprehensive sets of diverse instructions.</li> (Dataset: <a href="https://arxiv.org/abs/2212.09689">Unnat. Instr.</a>, <a href="https://arxiv.org/abs/2212.10560">Self-Instruct</a>, <a href="https://github.com/tatsu-lab/stanford_alpaca">Alpaca-cleaned</a>, <a href="https://arxiv.org/abs/2304.03277">GPT-4-LLM</a>, <a href="https://www.databricks.com/blog/2023/04/12/dolly-first-open-commercially-viable-instruction-tuned-llm">FLAN</a>, <a href="https://www.databricks.com/blog/2023/04/12/dolly-first-open-commercially-viable-instruction-tuned-llm">Dolly</a>, <a href="https://aclanthology.org/2022.emnlp-main.340/">SuperNat. Instr.</a>, <a href="https://github.com/XueFuzhao/InstructionWild">Instr. in the Wild</a>)
                     <li><b>Simulation</b> where two large language model (LLM) agents converse, has potential for enhancing model performance and simulating intricate social interactions, according to initial studies. (Dataset: <a href="https://arxiv.org/abs/2307.05300">Grid-World</a>, <a href="https://arxiv.org/abs/2303.17760">CAMEL</a>)</li> 
+                    <li><b>Free-Form Text</b> written by an LLM, often used to compensate for data scarcity issues and used for pretraining and/or finetuning. (Dataset: <a href="https://arxiv.org/abs/2301.07597">HC3</a>, <a href="https://aclanthology.org/2022.acl-long.501/">Scarecrow</a>, <a href="https://arxiv.org/abs/2305.13242">Deepfake</a>, <a href="https://arxiv.org/abs/2304.13861">Workers</a>)</li>
                     <button class="button is-link is-inverted">
                       <span class="icon">
                         <img src="static/logos/hf-logo.svg" width="25" height="25"></img>
                       </span>
                       <a href="https://huggingface.co/datasets/minnesotanlp/LLM-Artifacts"
-                      target="_blank">Check datasets on Huggingface</a>
+                      target="_blank">Check the datasets on Huggingface</a>
                     </button>
                   </ul>
                 </p>
@@ -291,8 +291,9 @@
               <h2 class="title is-3">Research Contributions</h2>
               <div class="level-set has-text-justified">
               <ul>
-                <li>We <b>aggregate and conduct comprehensive stress tests</b> on various data generated by LLMs, offering a thorough evaluation of the quality, consistency, and reliability of LLM outputs across diverse models and scenarios, thereby providing a groundbreaking insight into their strengths and weaknesses for future research and development.</li>
-                <li>Our research <b>emphasizes the critical need for responsible and ethical practices in creating and using LLM-generated data</b>, advocating for collaborative efforts among stakeholders to address biases, increase diversity, and deepen the understanding of complex human opinions in LLM outputs, thereby ensuring their development benefits society ethically and sustainably.</li>
+                <li>We present a pioneering effort in gathering a diverse range of text data produced by LLMs, covering everything from more structured "task labels" to open-ended "free-form text." This comprehensive collection is significant as it allows for a unique and holistic examination of LLM outputs and  provides insights into how LLMs perform under varying degrees of structure and freedom, which is essential for both understanding their current state and guiding future improvements and applications.</li>
+                <li>We aggregate and conduct comprehensive stress tests on various data generated by LLMs using the existing benchmarks, offering a thorough evaluation of the quality, consistency, and reliability of LLM outputs across diverse models and scenarios, thereby providing a groundbreaking insight into their strengths and weaknesses for future research and development.</li>
+                <li>Our research emphasizes the critical need for responsible and ethical practices in creating and using LLM-generated data, advocating for collaborative efforts among stakeholders to address biases, increase diversity, and deepen the understanding of complex human opinions in LLM outputs, thereby ensuring their development benefits society ethically and sustainably.</li>
                 </ul>
               </div>
             </div>
@@ -318,7 +319,7 @@
                 <div class="container">
                   <div id="carousel1" class="carousel results-carousel">
                     <div class="item">
-                      <p class="subtitle has-text-centered"><b>Task Labels</b> - section 6.1</p>
+                      <p class="subtitle has-text-centered"><b>Task Labels</b> - section 5.1</p>
                       <div style="display: flex; justify-content: center">
                         <img src="/static/images/9.png" style="max-height: 260px" />
                       </div>
@@ -328,7 +329,7 @@
                     </div>
 
                     <div class="item">
-                      <p class="subtitle has-text-centered"><b>Free-Form Text</b> - section 5.1</p>
+                      <p class="subtitle has-text-centered"><b>Free-Form Text</b> - section 9.1</p>
                       <div style="display: flex; justify-content: center">
                         <img src="/static/images/7.png" style="max-height: 260px" />
                       </div>
@@ -338,7 +339,7 @@
                     </div>
 
                     <div class="item">
-                      <p class="subtitle has-text-centered"><b>Preferences</b> - section 8.1</p>
+                      <p class="subtitle has-text-centered"><b>Preferences</b> - section 6.1</p>
                       <div style="display: flex; justify-content: center">
                         <img src="/static/images/15.png" style="max-height: 260px" />
                       </div>
@@ -359,7 +360,7 @@
                 <div class="container">
                   <div id="carousel2" class="carousel results-carousel">
                     <div class="item">
-                      <p class="subtitle has-text-centered"><b>Simulation</b> - section 9.1</p>
+                      <p class="subtitle has-text-centered"><b>Simulation</b> - section 8.1</p>
                       <div style="display: flex; justify-content: center">
                         <img src="/static/images/17.png" style="max-height: 260px" />
                       </div>
@@ -388,7 +389,7 @@
               </li>
               <div class="hero-body">
                 <div class="container">
-                  <p class="subtitle has-text-centered"><b>Simulation</b> - section 9.1</p>
+                  <p class="subtitle has-text-centered"><b>Simulation</b> - section 8.1</p>
                   <div style="display: flex; justify-content: center">
                     <img src="/static/images/19.png" style="max-height: 260px" />
                   </div>
@@ -407,7 +408,7 @@
                 <div class="container">
                   <div id="carousel3" class="carousel results-carousel">
                     <div class="item">
-                      <p class="subtitle has-text-centered"><b>Free-Form Text</b> - section 5.2</p>
+                      <p class="subtitle has-text-centered"><b>Free-Form Text</b> - section 9.2</p>
                       <div style="display: flex; justify-content: center">
                         <img src="/static/images/8.png" style="max-height: 260px" />
                       </div>
@@ -416,7 +417,7 @@
                                       </p>
                     </div>
                     <div class="item">
-                      <p class="subtitle has-text-centered"><b>Task Labels</b> - section 6.2</p>
+                      <p class="subtitle has-text-centered"><b>Task Labels</b> - section 5.2</p>
                       <div style="display: flex; justify-content: center">
                         <img src="/static/images/12.jpg" style="max-height: 260px" />
                       </div>
@@ -434,7 +435,7 @@
                                     </p>
                     </div>
                     <div class="item">
-                      <p class="subtitle has-text-centered"><b>Preferences</b> - section 8.2</p>
+                      <p class="subtitle has-text-centered"><b>Preferences</b> - section 6.2</p>
                       <div style="display: flex; justify-content: center">
                         <img src="/static/images/16.png" style="max-height: 260px" />
                       </div>
@@ -472,7 +473,7 @@
     <section class="section" id="BibTeX">
       <div class="container is-max-desktop content">
         <h2 class="title">BibTeX</h2>
-        <pre><code>BibTex Code Here</code></pre>
+        <pre><code>PENDING</code></pre>
       </div>
     </section>
     <!--BibTex citation end-->
