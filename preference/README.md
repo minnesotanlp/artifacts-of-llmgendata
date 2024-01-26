@@ -1,6 +1,6 @@
 ## Prerequisites
 
-To run the codes for preference results, run the following script on the terminal: 
+Before running the codes for preference results, run the following script on the terminal to install all required packages: 
   ```sh
   pip install -r requirements.txt
   ```
