@@ -3,7 +3,7 @@ This repository contains scripts for running the experiments illustrated in the 
 > *"Under the Surface: Tracking the Artifactuality of LLM-Generated Data"*<br>
 Debarati Das<sup>†¶</sup>, Karin de Langis<sup>¶</sup>, Anna Martin-Boyle<sup>¶</sup>, Jaehyung Kim<sup>¶</sup>, Minhwa Lee<sup>¶</sup>, Zae Myung Kim<sup>¶</sup>, Shirley Anugrah Hayati, Risako Owan, Bin Hu, Ritik Sachin Parkar, Ryan Koo, Jong Inn Park, Aahan Tyagi, Libby Ferland, Sanjali Roy, Vincent Liu, Dongyeop Kang<br>
 Minnesota NLP, University of Minnesota Twin Cities<br>
-<sup>†</sup> Project Lead, <sup>¶</sup> Core Contribution
+<sup>†</sup> Project Lead, <sup>¶</sup> Core Contribution <br>
 *Our website can be accessed at this [Link](https://minnesotanlp.github.io/artifact/).*
 *The paper can be accessed at [arXiv](link).*<br>
 *The datasets used in the paper can be downloaded from [HuggingFace Hub](https://huggingface.co/datasets/minnesotanlp/LLM-Artifacts).*
