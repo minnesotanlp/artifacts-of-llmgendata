@@ -5,11 +5,11 @@ Debarati Das<sup>†¶</sup>, Karin de Langis<sup>¶</sup>, Anna Martin-Boyle<su
 Minnesota NLP, University of Minnesota Twin Cities<br>
 <sup>†</sup> Project Lead, <sup>¶</sup> Core Contribution
 
+*The paper can be accessed at [arXiv](link).*<br>
+*The datasets used in the paper can be downloaded from [HuggingFace Hub](https://huggingface.co/datasets/minnesotanlp/LLM-Artifacts).*
+
 ## Overview
 This research project collects diverse text data from large language models (LLMs), encompassing both structured "task labels" and open-ended "free-form text." This extensive dataset allows for a holistic examination of LLM outputs, offering insights into their performance under varying degrees of structure and freedom. The research underscores the importance of responsible and ethical practices in LLM-generated data creation and usage, advocating for collaborative efforts to address biases, enhance diversity, and deepen the understanding of complex human opinions in LLM outputs for ethical and sustainable development.
-
-*The paper can be accessed at: arxiv link <br>*
-*The datasets used in the paper can be downloaded from: https://huggingface.co/datasets/minnesotanlp/LLM-Artifacts*
 
 The structure of the repository closely follows the stress testing methods applied to the five different data types: *Task Labels*, *Preferences*, *Instructions*, *Simulations*, and *Free-Form Text*
 
@@ -34,4 +34,4 @@ The code for the corresponding first-order and second-order experiments are plac
 ## Artifacts in Free-Form Text
 
 ## Website
-This directory stores the code for the project website which can be accessed at: website address
+This directory stores the code for the project website which can be accessed at: https://minnesotanlp.github.io/artifact

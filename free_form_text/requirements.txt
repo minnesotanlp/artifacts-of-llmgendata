@@ -1,0 +1,14 @@
+datasets
+matplotlib
+networkx
+nltk
+numpy
+pandas
+regex
+rich
+scipy
+seaborn
+spacy
+torch
+tqdm
+transformers
