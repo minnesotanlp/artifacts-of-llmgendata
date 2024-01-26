@@ -18,20 +18,3 @@ More specifically, the stress testing experiments are categorized as either "fir
 <img width="1588" alt="image" src="https://github.com/minnesotanlp/artifacts-of-llmgendata/assets/3746478/ae37ef70-78fe-4142-8cc5-8eb02a2c8efd">
 
 The code for the corresponding first-order and second-order experiments are placed under two directories of the same names, respectively, except for Simulation data type where we did not perform a second-order experiment.
-
-## Artifacts in Task Labels
-
-
-## Artifacts in Preferences
-
-
-## Artifacts in Instructions
-
-
-## Artifacts in Simulation
-
-
-## Artifacts in Free-Form Text
-
-## Website
-This directory stores the code for the project website which can be accessed at: https://minnesotanlp.github.io/artifact
