@@ -9,18 +9,12 @@ Enable instruction-tuning in Large Language Models.
 
 ## Setup
 
-Clone the repository.
-
-```bash
-git clone https://github.com/minnesotanlp/active-instruction-tuning.git
-cd active-instruction-tuning
-```
-
 Install required packages. (`requirements.txt` includes all submodule packages.)
 
 ```bash
 pip install -r requirements.txt
 ```
+Unzip the datasets zip file. Place the unzipped file inside `instructions/second_order`.
 
 You are all set.
 
