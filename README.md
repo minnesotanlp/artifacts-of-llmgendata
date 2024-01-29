@@ -27,3 +27,15 @@ Under each data type directory, a corresponding `README.md` file is located for 
 - [Instructions](https://github.com/minnesotanlp/artifacts-of-llmgendata/tree/main/instructions)
 - [Simulations](https://github.com/minnesotanlp/artifacts-of-llmgendata/tree/main/simulation)
 - [Free-Form Text](https://github.com/minnesotanlp/artifacts-of-llmgendata/tree/main/free_form_text)
+
+## Citation
+```
+@misc{das2024surface,
+  title={Under the Surface: Tracking the Artifactuality of LLM-Generated Data}, 
+  author={Debarati Das and Karin De Langis and Anna Martin and Jaehyung Kim and Minhwa Lee and Zae Myung Kim and Shirley Hayati and Risako Owan and Bin Hu and Ritik Parkar and Ryan Koo and Jonginn Park and Aahan Tyagi and Libby Ferland and Sanjali Roy and Vincent Liu and Dongyeop Kang},
+  year={2024},
+  eprint={2401.14698},
+  archivePrefix={arXiv},
+  primaryClass={cs.CL}
+}
+```
