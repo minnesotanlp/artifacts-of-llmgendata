@@ -5,7 +5,7 @@ Debarati Das<sup>†¶</sup>, Karin de Langis<sup>¶</sup>, Anna Martin-Boyle<su
 Minnesota NLP, University of Minnesota Twin Cities<br>
 <sup>†</sup> Project Lead, <sup>¶</sup> Core Contribution <br>
 *Our website can be accessed at this [Link](https://minnesotanlp.github.io/artifact/).*
-*The paper can be accessed at [arXiv](link).*<br>
+*The paper can be accessed at [arXiv](https://arxiv.org/pdf/2401.14698.pdf).*<br>
 *The datasets used in the paper can be downloaded from [HuggingFace Hub](https://huggingface.co/datasets/minnesotanlp/LLM-Artifacts).*
 
 ## Overview
